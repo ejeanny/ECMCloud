@@ -206,4 +206,9 @@ services instead of 441 stored procedures.
 - `Content-Disposition` filenames are escaped and `X-Content-Type-Options:
   nosniff` is set, because document names are user-controlled.
 - Row-level view restrictions are applied in the database query, not filtered
-  in the client, and never hide folders (which would break the tree).
+  in the client, and never hide folders (which would break the tree). They are
+  enforced on every path that takes a document id — its metadata, its bytes,
+  its versions, notes and annotations, and every mutation — not only on lists
+  and search, because a restriction that only filters lists is not security.
+  A hidden document answers `404`, not `403`: saying "you may not see this"
+  confirms it exists and matches what the caller was looking for.

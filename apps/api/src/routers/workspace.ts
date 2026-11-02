@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { prisma } from '@ecm/db';
 import { addNoteInput, editNoteInput, nodeIdsInput, pageInput } from '@ecm/domain';
 import { audit } from '../audit.js';
+import { assertVisible } from '../visibility.js';
 import {
   assertCabinetRight,
   conflict,
@@ -25,10 +26,11 @@ export const workspaceRouter = router({
     .query(async ({ ctx, input }) => {
       const node = await prisma.node.findUnique({
         where: { id: input.nodeId },
-        select: { cabinetId: true },
+        select: { id: true, cabinetId: true, kind: true },
       });
       if (!node) notFound('Document');
       assertCabinetRight(ctx.principal, node.cabinetId, 'View_FileNotes');
+      await assertVisible(ctx.principal, node);
 
       const notes = await prisma.fileNote.findMany({
         where: { nodeId: input.nodeId },
@@ -43,10 +45,11 @@ export const workspaceRouter = router({
   addNote: protectedProcedure.input(addNoteInput).mutation(async ({ ctx, input }) => {
     const node = await prisma.node.findUnique({
       where: { id: input.nodeId },
-      select: { cabinetId: true, name: true },
+      select: { id: true, cabinetId: true, kind: true, name: true },
     });
     if (!node) notFound('Document');
     assertCabinetRight(ctx.principal, node.cabinetId, 'Edit_FileNotes');
+    await assertVisible(ctx.principal, node);
 
     const note = await prisma.fileNote.create({
       data: {
@@ -168,6 +171,16 @@ export const workspaceRouter = router({
   touchRecent: protectedProcedure
     .input(z.object({ nodeId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // Otherwise a hidden document could be written into the user's own
+      // recents and then read back from there, around the restriction.
+      const node = await prisma.node.findUnique({
+        where: { id: input.nodeId },
+        select: { id: true, cabinetId: true, kind: true },
+      });
+      if (!node) notFound('Document');
+      assertCabinetRight(ctx.principal, node.cabinetId, 'View_Open');
+      await assertVisible(ctx.principal, node);
+
       await prisma.recent.upsert({
         where: { userId_nodeId: { userId: ctx.principal.userId, nodeId: input.nodeId } },
         update: { viewedAt: new Date() },

@@ -11,6 +11,7 @@ import { auditAsync } from './audit.js';
 import { createContext } from './context.js';
 import { env } from './env.js';
 import { readBlob, stagingPath } from './storage.js';
+import { isVisible } from './visibility.js';
 import { appRouter } from './routers/index.js';
 import { startWorker } from './worker.js';
 
@@ -120,6 +121,13 @@ export async function buildServer() {
     const right = disposition === 'attachment' ? 'Launch_Document' : 'View_Open';
     if (!canInCabinet(ctx.principal, node.cabinetId, right)) {
       return reply.code(403).send({ error: `Missing right ${right}.` });
+    }
+
+    // The row-level restriction. Serving the bytes of a document the grid
+    // hides would make the whole restriction decorative; 404, not 403, so the
+    // response does not confirm the document exists.
+    if (!(await isVisible(ctx.principal, node))) {
+      return reply.code(404).send({ error: 'Document not found.' });
     }
 
     // A version id selects historical bytes; otherwise the node's current blob.

@@ -7,8 +7,10 @@ import {
   toXfdf,
   type Annotation as XfdfAnnotation,
   type AnnotationKind,
+  type Principal,
 } from '@ecm/domain';
 import { audit } from '../audit.js';
+import { assertVisible } from '../visibility.js';
 import {
   assertCabinetRight,
   badRequest,
@@ -115,13 +117,20 @@ const rowSelect = {
   author: { select: { userName: true } },
 } as const;
 
-/** Resolve the document and its cabinet, or fail the request. */
-async function documentFor(nodeId: string) {
+/**
+ * Resolve the document and its cabinet, or fail the request.
+ *
+ * `principal` is required rather than optional: annotations carry the content
+ * of a document in their text, so a document hidden by a row-level restriction
+ * must not expose them.
+ */
+async function documentFor(principal: Principal, nodeId: string) {
   const node = await prisma.node.findUnique({
     where: { id: nodeId },
     select: { id: true, cabinetId: true, name: true, kind: true },
   });
   if (!node || node.kind !== 'document') notFound('Document');
+  await assertVisible(principal, node);
   return node;
 }
 
@@ -163,7 +172,7 @@ export const annotationRouter = router({
   list: protectedProcedure
     .input(z.object({ nodeId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const node = await documentFor(input.nodeId);
+      const node = await documentFor(ctx.principal, input.nodeId);
       assertCabinetRight(ctx.principal, node.cabinetId, 'View_Open');
 
       const rows = await prisma.annotation.findMany({
@@ -197,7 +206,7 @@ export const annotationRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const node = await documentFor(input.nodeId);
+      const node = await documentFor(ctx.principal, input.nodeId);
       for (const a of input.annotations) validateGeometry(a);
 
       const names = input.annotations.map((a) => a.name);
@@ -268,7 +277,7 @@ export const annotationRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const node = await documentFor(input.nodeId);
+      const node = await documentFor(ctx.principal, input.nodeId);
       assertCabinetRight(ctx.principal, node.cabinetId, 'Delete_Annotation');
 
       const rows = await prisma.annotation.findMany({
@@ -309,7 +318,7 @@ export const annotationRouter = router({
   exportXfdf: protectedProcedure
     .input(z.object({ nodeId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const node = await documentFor(input.nodeId);
+      const node = await documentFor(ctx.principal, input.nodeId);
       assertCabinetRight(ctx.principal, node.cabinetId, 'View_Open');
 
       const rows = await prisma.annotation.findMany({
@@ -333,7 +342,7 @@ export const annotationRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const node = await documentFor(input.nodeId);
+      const node = await documentFor(ctx.principal, input.nodeId);
       assertCabinetRight(ctx.principal, node.cabinetId, 'Add_Annotation');
 
       let parsed: XfdfAnnotation[] = [];
@@ -396,7 +405,7 @@ export const annotationRouter = router({
   queueBurn: protectedProcedure
     .input(z.object({ nodeId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const node = await documentFor(input.nodeId);
+      const node = await documentFor(ctx.principal, input.nodeId);
       assertCabinetRight(ctx.principal, node.cabinetId, 'Burn_Annotation');
 
       const pending = await prisma.annotation.count({

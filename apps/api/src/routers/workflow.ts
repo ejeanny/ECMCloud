@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { prisma } from '@ecm/db';
 import { completeTodoInput, pageInput, saveWorkflowInput, startWorkflowInput } from '@ecm/domain';
 import { audit } from '../audit.js';
+import { assertVisible } from '../visibility.js';
 import { compileClauses, fieldsFor } from '../index-values.js';
 import {
   assertCanEnter,
@@ -481,10 +482,11 @@ export const workflowRouter = router({
     .query(async ({ ctx, input }) => {
       const node = await prisma.node.findUnique({
         where: { id: input.nodeId },
-        select: { cabinetId: true },
+        select: { id: true, cabinetId: true, kind: true },
       });
       if (!node) notFound('Document');
       assertCanEnter(ctx.principal, node.cabinetId);
+      await assertVisible(ctx.principal, node);
 
       return prisma.workflowInstance.findMany({
         where: { nodeId: input.nodeId },

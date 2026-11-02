@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { prisma } from '@ecm/db';
 import { checkInInput, checkOutInput, revertVersionInput } from '@ecm/domain';
 import { audit } from '../audit.js';
+import { assertVisible } from '../visibility.js';
 import { clearStaging, splitName, stagingPath, writeBlob } from '../storage.js';
 import {
   assertCabinetRight,
@@ -28,6 +29,7 @@ export const versionRouter = router({
       const node = await prisma.node.findUnique({ where: { id: input.nodeId } });
       if (!node) notFound('Document');
       assertCabinetRight(ctx.principal, node.cabinetId, 'Folders_Files_View_Versions');
+      await assertVisible(ctx.principal, node);
 
       const versions = await prisma.nodeVersion.findMany({
         where: { nodeId: node.id },
@@ -58,6 +60,7 @@ export const versionRouter = router({
     if (!node) notFound('Document');
     if (node.kind !== 'document') badRequest('Only documents can be checked out.');
     assertCabinetRight(ctx.principal, node.cabinetId, 'Edit_Document');
+    await assertVisible(ctx.principal, node);
 
     if (node.checkout) {
       if (node.checkout.userId === ctx.principal.userId) {
@@ -100,6 +103,7 @@ export const versionRouter = router({
       include: { checkout: true },
     });
     if (!node) notFound('Document');
+    await assertVisible(ctx.principal, node);
     if (!node.checkout) conflict('Document is not checked out.');
     if (node.checkout.userId !== ctx.principal.userId && !ctx.principal.isAdministrator) {
       conflict('Document is checked out by another user.');
@@ -280,6 +284,7 @@ export const versionRouter = router({
     const node = await prisma.node.findUnique({ where: { id: input.nodeId } });
     if (!node) notFound('Document');
     assertCabinetRight(ctx.principal, node.cabinetId, 'Save_Document_Revert_Version');
+    await assertVisible(ctx.principal, node);
     if (node.isCheckedOut) conflict('Check the document in before reverting.');
 
     const version = await prisma.nodeVersion.findUnique({ where: { id: input.versionId } });

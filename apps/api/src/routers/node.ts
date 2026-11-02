@@ -19,6 +19,7 @@ import {
   viewRestrictionFor,
 } from '../index-values.js';
 import { roleIdsFor } from '../principal.js';
+import { assertVisible } from '../visibility.js';
 import {
   assertCabinetRight,
   assertCanEnter,
@@ -71,6 +72,9 @@ async function loadNode(
   const node = await prisma.node.findUnique({ where: { id: nodeId } });
   if (!node) notFound('Document');
   assertCabinetRight(principal, node.cabinetId, right);
+  // The row-level restriction, not just the cabinet right: a document the
+  // grid hides must not be reachable by knowing its id.
+  await assertVisible(principal, node);
   return node;
 }
 
@@ -199,6 +203,7 @@ export const nodeRouter = router({
       });
       if (!node) notFound('Document');
       assertCabinetRight(ctx.principal, node.cabinetId, 'View_Open');
+      await assertVisible(ctx.principal, node);
 
       const fields = await fieldsFor(node.cabinetId);
       const byField = new Map(node.indexValues.map((v) => [v.fieldId, v]));
