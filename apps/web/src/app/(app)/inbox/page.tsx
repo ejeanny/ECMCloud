@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { CircleCheck, CircleX, File as FileIcon, Inbox, Loader2 } from 'lucide-react';
 
@@ -18,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/format';
+import { openHrefFor } from '@/components/row-actions';
 import { trpc } from '@/lib/trpc';
 
 export default function InboxPage() {
@@ -91,15 +93,13 @@ export default function InboxPage() {
               </CardHeader>
 
               <CardContent className="space-y-3 px-5">
-                <a
-                  href={`/file/${todo.instance.node.id}`}
-                  target="_blank"
-                  rel="noreferrer"
+                <Link
+                  href={openHrefFor(todo.instance.node)}
                   className="hover:text-primary inline-flex items-center gap-2 text-sm hover:underline"
                 >
                   <FileIcon className="text-muted-foreground size-4 shrink-0" />
                   {todo.instance.node.name}
-                </a>
+                </Link>
 
                 <div className="space-y-2">
                   <Label htmlFor={`c-${todo.id}`} className="text-muted-foreground text-xs">

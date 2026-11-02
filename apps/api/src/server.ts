@@ -197,16 +197,50 @@ export async function buildServer() {
   return app;
 }
 
+/**
+ * `X-Content-Type-Options: nosniff` is set on every response, so a type that is
+ * missing here is served as `application/octet-stream` and the browser refuses
+ * to render it — which is why the viewer's image and media formats have to be
+ * listed.
+ *
+ * Two deliberate omissions. HTML and SVG can both carry script, and serving
+ * them as `text/html` or `image/svg+xml` from this origin would let an
+ * uploaded file run script against the session cookie by being navigated to
+ * directly. They stay `application/octet-stream` here; the viewer renders them
+ * from bytes it has fetched, sandboxed, where no such origin exists.
+ */
 const MIME: Record<string, string> = {
   pdf: 'application/pdf',
+
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  avif: 'image/avif',
+  ico: 'image/vnd.microsoft.icon',
   tif: 'image/tiff',
   tiff: 'image/tiff',
+
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  m4a: 'audio/mp4',
+  flac: 'audio/flac',
+  aac: 'audio/aac',
+
+  webm: 'video/webm',
+  ogv: 'video/ogg',
+  mov: 'video/quicktime',
+  m4v: 'video/x-m4v',
+
   txt: 'text/plain; charset=utf-8',
+  md: 'text/plain; charset=utf-8',
+  log: 'text/plain; charset=utf-8',
   csv: 'text/csv; charset=utf-8',
+  tsv: 'text/tab-separated-values; charset=utf-8',
   json: 'application/json',
   xml: 'application/xml',
   doc: 'application/msword',

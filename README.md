@@ -279,6 +279,51 @@ behind it — and sets out the open-source path (PDF.js in the browser, `pdf-lib
 and `qpdf` on the server) with an honest account of what has no good
 replacement.
 
+## The viewer
+
+Every document opens at `/v/<id>`, whatever it is. Dokmee answered this by
+converting everything to PDF first (`loadAsPDF`), which needs the conversion
+engine this rebuild does not ship; the alternative is to meet each format
+where it is. `lib/viewer/formats.ts` maps an extension to a renderer and
+`components/viewer/renderers/` holds them:
+
+| Format | Drawn by |
+| --- | --- |
+| PDF | PDF.js — pages, text layer, search, annotations |
+| Images (png, jpg, gif, webp, bmp, avif, svg) | the browser, with zoom and rotate |
+| Text, logs and source | fetched and laid out; source gets a line gutter |
+| Markdown | `marked`, sanitised |
+| CSV and TSV | `papaparse` into a table |
+| Word (.docx) | `mammoth`, sanitised |
+| HTML | a sandboxed iframe |
+| Audio and video | the browser's own player |
+
+Anything else says what the file is and offers it for download, which is a
+better answer than a broken preview. The gap worth naming is spreadsheets and
+presentations: the client-side parsers for those are either unmaintained on
+npm or carry open advisories, and running one over an uploaded file to
+produce a preview is a poor trade.
+
+Two formats are deliberately not served as themselves. HTML and SVG can both
+carry script, so `/file/:id` sends them as `application/octet-stream`: if they
+went out as `text/html` or `image/svg+xml`, navigating to one directly would
+run an uploaded file's script against this origin and its session cookie. The
+viewer renders them from bytes it has fetched — HTML in an iframe with an
+empty `sandbox` (no scripts, and an opaque origin), SVG through an `<img>`,
+which draws the picture and runs none of its script. Every piece of HTML the
+viewer generates itself, from Markdown or from a .docx, goes through DOMPurify
+on the way to the DOM.
+
+Getting around a long document: a thumbnail rail beside the page (drawn as
+you scroll it, not all at once), a page box you can type into, first/last and
+previous/next, and PageUp, PageDown, Home and End. The arrow keys are left
+alone, because a reader expects those to scroll.
+
+A page's position in the scroll is derived from its own size times the
+current zoom. It used to be the size measured at zoom 1 and corrected only for
+pages that had actually rendered, so at fit-width every undrawn page was
+understated by about half and jumping to page 9 landed on page 7.
+
 ## The dashboard
 
 `/` is a board of widgets, and it is where signing in lands. Each widget is a

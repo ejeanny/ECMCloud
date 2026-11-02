@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { File as FileIcon, Loader2, LockOpen, Undo2, Upload } from 'lucide-react';
 
@@ -16,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatDate } from '@/lib/format';
+import { openHrefFor } from '@/components/row-actions';
 import { trpc } from '@/lib/trpc';
 
 export default function CheckoutsPage() {
@@ -87,15 +89,13 @@ export default function CheckoutsPage() {
               {items.map((item) => (
                 <TableRow key={item.checkoutId}>
                   <TableCell title={item.node.name}>
-                    <a
-                      href={`/file/${item.node.id}`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <Link
+                      href={openHrefFor(item.node)}
                       className="hover:text-primary flex w-full min-w-0 items-center gap-2 hover:underline"
                     >
                       <FileIcon className="text-muted-foreground size-4 shrink-0" />
                       <span className="truncate">{item.node.name}</span>
-                    </a>
+                    </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs">
                     {formatDate(item.since)}
