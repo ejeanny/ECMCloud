@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '@ecm/db';
 import { changePasswordInput, loginInput, pageInput } from '@ecm/domain';
 import { audit } from '../audit.js';
+import { officeConversionAvailable } from '../convert.js';
 import { SESSION_COOKIE, hashToken } from '../context.js';
 import { env } from '../env.js';
 import { loadPrincipal } from '../principal.js';
@@ -129,6 +130,12 @@ export const sessionRouter = router({
 
     return {
       user,
+      // What this deployment can do, as opposed to what this user may do.
+      // The viewer asks before sending an office document to the PDF viewer:
+      // a server with no converter configured keeps the renderers it has, and
+      // the alternative — route everything and let it fail — shows the user a
+      // broken viewer to tell them about a setting.
+      capabilities: { officeToPdf: officeConversionAvailable() },
       isAdministrator: ctx.principal.isAdministrator,
       systemRights: [...ctx.principal.systemGrants].filter(
         (r) => !ctx.principal.systemDenies.has(r),

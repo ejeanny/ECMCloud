@@ -8,6 +8,14 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { prisma } from '@ecm/db';
 import { auditAsync } from './audit.js';
+import {
+  ConversionFailed,
+  ConversionUnavailable,
+  canConvertToPdf,
+  officeConversionAvailable,
+  officeToPdf,
+  openConversion,
+} from './convert.js';
 import { createContext } from './context.js';
 import { env } from './env.js';
 import { readBlob, stagingPath } from './storage.js';
@@ -103,31 +111,48 @@ export async function buildServer() {
 
   // --- document bytes ---------------------------------------------------
 
-  async function sendFile(
+  /**
+   * Everything that must be true before any of a document's bytes leave: a
+   * session, a document, the right, the row-level restriction, and which blob
+   * is being asked for.
+   *
+   * Pulled out of `sendFile` when a second route began serving the same
+   * content in another form. Two copies of a permission check is how one of
+   * them comes to be missing a clause, and the converted-PDF route reaches
+   * exactly the same bytes as the original.
+   *
+   * Returns null once it has answered, so each caller is one `if` from safe.
+   */
+  async function resolveDocument(
     req: FastifyRequest,
     reply: FastifyReply,
     nodeId: string,
-    disposition: 'inline' | 'attachment',
+    right: 'View_Open' | 'Launch_Document',
   ) {
     const ctx = await createContext({ req, res: reply });
-    if (!ctx.principal) return reply.code(401).send({ error: 'No active session.' });
+    if (!ctx.principal) {
+      reply.code(401).send({ error: 'No active session.' });
+      return null;
+    }
 
     const node = await prisma.node.findUnique({ where: { id: nodeId } });
     if (!node || node.kind !== 'document') {
-      return reply.code(404).send({ error: 'Document not found.' });
+      reply.code(404).send({ error: 'Document not found.' });
+      return null;
     }
 
     const { canInCabinet } = await import('@ecm/domain');
-    const right = disposition === 'attachment' ? 'Launch_Document' : 'View_Open';
     if (!canInCabinet(ctx.principal, node.cabinetId, right)) {
-      return reply.code(403).send({ error: `Missing right ${right}.` });
+      reply.code(403).send({ error: `Missing right ${right}.` });
+      return null;
     }
 
     // The row-level restriction. Serving the bytes of a document the grid
     // hides would make the whole restriction decorative; 404, not 403, so the
     // response does not confirm the document exists.
     if (!(await isVisible(ctx.principal, node))) {
-      return reply.code(404).send({ error: 'Document not found.' });
+      reply.code(404).send({ error: 'Document not found.' });
+      return null;
     }
 
     // A version id selects historical bytes; otherwise the node's current blob.
@@ -138,28 +163,50 @@ export async function buildServer() {
       encryptionIv: string | null;
       name: string;
       ext: string | null;
+      sha256: string | null;
     } = node;
 
     if (versionId) {
       if (!canInCabinet(ctx.principal, node.cabinetId, 'Folders_Files_View_Versions')) {
-        return reply
-          .code(403)
-          .send({ error: 'Missing right Folders_Files_View_Versions.' });
+        reply.code(403).send({ error: 'Missing right Folders_Files_View_Versions.' });
+        return null;
       }
       const version = await prisma.nodeVersion.findUnique({ where: { id: versionId } });
       if (!version || version.nodeId !== node.id) {
-        return reply.code(404).send({ error: 'Version not found.' });
+        reply.code(404).send({ error: 'Version not found.' });
+        return null;
       }
       source = version;
     }
 
     if (!source.blobId) {
-      return reply.code(409).send({ error: 'This item has no stored content.' });
+      reply.code(409).send({ error: 'This item has no stored content.' });
+      return null;
     }
+
+    return { ctx, node, source, blobId: source.blobId };
+  }
+
+  async function sendFile(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    nodeId: string,
+    disposition: 'inline' | 'attachment',
+  ) {
+    const resolved = await resolveDocument(
+      req,
+      reply,
+      nodeId,
+      disposition === 'attachment' ? 'Launch_Document' : 'View_Open',
+    );
+    if (!resolved) return reply;
+    // `blobId` comes back separately because the check that it is present
+    // happened in `resolveDocument`, and the source's own field stays nullable.
+    const { ctx, node, source, blobId } = resolved;
 
     const stream = await readBlob(
       node.cabinetId,
-      source.blobId,
+      blobId,
       source.encryptedKey && source.encryptionIv
         ? { encryptedKey: source.encryptedKey, encryptionIv: source.encryptionIv }
         : null,
@@ -193,6 +240,76 @@ export async function buildServer() {
   app.get<{ Params: { nodeId: string } }>('/file/:nodeId/download', (req, reply) =>
     sendFile(req, reply, req.params.nodeId, 'attachment'),
   );
+
+  /**
+   * The same document, as a PDF.
+   *
+   * What Apryse's `loadAsPDF` does for Office formats (PDF-VIEWER.md §8.4):
+   * the viewer asks for a PDF and gets one, and everything it can do with a
+   * PDF — annotations, search, thumbnails — then applies to a Word document.
+   *
+   * It needs `View_Open`, the same right as viewing the original, because that
+   * is what this is. A converted rendition is not a second document with
+   * permissions of its own.
+   */
+  app.get<{ Params: { nodeId: string } }>('/file/:nodeId/pdf', async (req, reply) => {
+    const resolved = await resolveDocument(req, reply, req.params.nodeId, 'View_Open');
+    if (!resolved) return reply;
+    const { ctx, node, source, blobId } = resolved;
+
+    const ext = (source.ext ?? '').toLowerCase();
+    // Already a PDF: there is nothing to convert, and refusing would make the
+    // viewer special-case which URL to ask for.
+    if (ext === 'pdf') return sendFile(req, reply, req.params.nodeId, 'inline');
+
+    if (!canConvertToPdf(ext)) {
+      return reply.code(501).send({
+        error: officeConversionAvailable()
+          ? `.${ext || '(none)'} is not a format this server converts to PDF.`
+          : 'This server has no document converter configured.',
+      });
+    }
+
+    try {
+      const stored = await readBlob(
+        node.cabinetId,
+        blobId,
+        source.encryptedKey && source.encryptionIv
+          ? { encryptedKey: source.encryptedKey, encryptionIv: source.encryptionIv }
+          : null,
+      );
+      const { path: at, cached } = await officeToPdf(stored, ext, source.sha256);
+
+      // Viewing is viewing, however the bytes were produced — and a converted
+      // view is still a view of the original document.
+      auditAsync(ctx.principal, ctx.ip, {
+        action: 'view',
+        cabinetId: node.cabinetId,
+        nodeId: node.id,
+        nodeName: node.name,
+      });
+
+      return reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', 'inline')
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('Cache-Control', 'private, no-store')
+        .header('X-Conversion', cached ? 'cached' : 'converted')
+        .send(openConversion(at));
+    } catch (cause) {
+      if (cause instanceof ConversionUnavailable) {
+        req.log.error({ cause }, 'office conversion unavailable');
+        return reply.code(501).send({ error: cause.message });
+      }
+      if (cause instanceof ConversionFailed) {
+        // The document's problem, not the server's: 422 so the viewer can say
+        // so rather than reporting an outage.
+        req.log.warn({ cause, nodeId: node.id }, 'office conversion failed');
+        return reply.code(422).send({ error: cause.message });
+      }
+      throw cause;
+    }
+  });
 
   return app;
 }

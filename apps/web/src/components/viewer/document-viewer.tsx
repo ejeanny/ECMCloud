@@ -14,6 +14,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { needsServerPdf } from '@ecm/domain';
+import { trpc } from '@/lib/trpc';
 import { formatFor, type ViewerFormat } from '@/lib/viewer/formats';
 import { convertsToPdf } from '@/lib/viewer/to-pdf';
 import { PdfViewer } from './pdf-viewer';
@@ -57,11 +59,19 @@ const FORMAT_LABEL: Partial<Record<ViewerFormat, string>> = {
 export function DocumentViewer({ nodeId, name, ext, byteLength, onClose }: Props) {
   const format = formatFor(ext);
 
+  // Whether this deployment has a document converter. Asked rather than
+  // assumed: with no converter an office document routed to the PDF viewer
+  // would open an error, which is a worse answer than the renderer it has.
+  const capabilities = trpc.session.me.useQuery().data?.capabilities;
+  const serverConverts = Boolean(capabilities?.officeToPdf) && needsServerPdf(ext);
+
   // A raster image opens as a PDF of one page, which is how Apryse shows one
   // (PDF-VIEWER.md §2, `loadAsPDF`). It is not presentation for its own sake:
   // annotations, the text layer, search and thumbnails are all built on PDF
   // pages, so an image shown as an `<img>` is an image nobody can mark up.
-  if (format === 'pdf' || convertsToPdf(ext)) {
+  // An office document reaches the same viewer the same way, by the longer
+  // road through the server.
+  if (format === 'pdf' || convertsToPdf(ext) || serverConverts) {
     return <PdfViewer nodeId={nodeId} name={name} ext={ext} onClose={onClose} />;
   }
 

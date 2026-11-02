@@ -3,3 +3,4 @@ export * from './enums.js';
 export * from './access.js';
 export * from './schemas.js';
 export * from './xfdf.js';
+export * from './formats.js';

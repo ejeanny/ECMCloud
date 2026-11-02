@@ -57,6 +57,35 @@ const schema = z.object({
   REPOSITORY_ROOT: z.string().min(1),
   /** Master key wrapping each file's per-file key, base64, 32 bytes. */
   REPOSITORY_MASTER_KEY: optional(z.string().min(1)),
+  /**
+   * The headless office converter, so Word, Excel and PowerPoint can open in
+   * the viewer as PDF. LibreOffice's `soffice` is what this is written for:
+   *
+   *   OFFICE_CONVERT_COMMAND=C:\Program Files\LibreOffice\program\soffice.exe
+   *
+   * Unset, office documents keep the renderers they have now and the viewer is
+   * told not to ask. See `convert.ts` — it runs on uploaded bytes, and the
+   * sandboxing that belongs around it is a deployment decision.
+   */
+  OFFICE_CONVERT_COMMAND: optional(z.string().min(1)),
+  /**
+   * Arguments placed before the ones the converter builds, split on spaces.
+   *
+   * For pointing at a wrapper rather than at `soffice` itself — which on
+   * Windows is not optional if the wrapper is a `.cmd` or `.bat`, because Node
+   * refuses to spawn those without a shell. Name the interpreter as the
+   * command and the script here:
+   *
+   *   OFFICE_CONVERT_COMMAND=C:\Program Files\nodejs\node.exe
+   *   OFFICE_CONVERT_ARGS=C:\tools\convert.mjs
+   */
+  OFFICE_CONVERT_ARGS: optional(z.string().min(1)),
+  /**
+   * Where converted PDFs are kept. Derived bytes only: deleting any of it
+   * costs a reconversion and nothing else, which is why it does not default
+   * into the repository.
+   */
+  RENDITION_CACHE_DIR: optional(z.string().min(1)),
   SESSION_TTL_MINUTES: z.coerce.number().int().min(5).default(480),
   WEB_ORIGIN: z.string().default('http://localhost:3000'),
 });

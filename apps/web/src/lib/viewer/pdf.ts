@@ -1,4 +1,4 @@
-import type { Rect } from '@ecm/domain';
+import { needsServerPdf, type Rect } from '@ecm/domain';
 import { convertsToPdf, imageToPdf } from './to-pdf';
 
 /**
@@ -237,7 +237,15 @@ async function download(
 ): Promise<Blob> {
   const response = await fetch(url, { credentials: 'same-origin' });
   if (!response.ok) {
-    throw new Error(`the file could not be read (${response.status})`);
+    // The API says why in a JSON body — "no converter is configured", "the
+    // document may be password-protected". Passing the status code up instead
+    // would turn every one of those into the same shrug.
+    const said = await response
+      .clone()
+      .json()
+      .then((body: { error?: string }) => body.error)
+      .catch(() => null);
+    throw new Error(said ?? `the file could not be read (${response.status})`);
   }
 
   const total = Number(response.headers.get('content-length') ?? 0);
@@ -284,6 +292,17 @@ export async function openPdf({ url, ext, onProgress }: OpenOptions): Promise<Op
     const result = await imageToPdf(await download(url, onProgress));
     converted = result.note;
     source = { data: result.bytes };
+  } else if (needsServerPdf(ext)) {
+    // Laid out by the server's converter — the one case where the viewer
+    // cannot do the work itself, because laying out a Word document is a
+    // layout engine's job (PDF-VIEWER.md §8.4).
+    //
+    // Fetched here rather than handed to PDF.js as a URL so that a refusal is
+    // read as the sentence the API wrote. PDF.js would report "unexpected
+    // server response (501)", which tells the user nothing they can act on.
+    const pdf = await download(`${url}/pdf`, onProgress);
+    converted = 'Converted to PDF on the server';
+    source = { data: new Uint8Array(await pdf.arrayBuffer()) };
   } else {
     source = { url };
   }

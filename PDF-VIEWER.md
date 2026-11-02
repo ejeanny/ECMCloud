@@ -483,10 +483,16 @@ Three gaps, stated plainly:
   to be in an ECM: multi-page faxes and scans. It needs a decoder before it can
   join the rest, and then it becomes a PDF of several pages. A dependency
   decision, not a design one.
-- **Office** — needs a real layout engine. Dokmee buys one twice over (Spire
-  server-side, Apryse's office worker client-side). The honest open option is
-  LibreOffice headless on the server, as §7 says; `.docx` keeps its
-  client-side HTML renderer until then.
+- **Office** — needs a real layout engine, which is why it is the server's
+  job. `GET /file/:id/pdf` converts through whatever `OFFICE_CONVERT_COMMAND`
+  names — LibreOffice headless is what it is written for — and caches the
+  result by content hash, as Dokmee cached its own in `App_Data` [observed:
+  `ViewerHelperUtil`]. With nothing configured the feature is absent rather
+  than broken: `session.me` reports the capability, and the viewer keeps the
+  renderers it has. **Not verified against LibreOffice itself** — it is not
+  installed on the machine this was written on, so the argument list, the
+  cache, and every failure path were tested against a stand-in that imitates
+  its interface, and the real converter's output has not been seen.
 - **No text layer on a converted image** — an image has no text, so search and
   the text markups do not apply to it; ink, box and note do. Dokmee closes this
   with OCR (`AddOCRService`), which this rebuild lists as an explicit stub.
