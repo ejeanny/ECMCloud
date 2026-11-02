@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import type { OpenDocument, OutlineItem } from '@/lib/viewer/pdf';
+import {
+  isRenderCancelled,
+  type OpenDocument,
+  type OutlineItem,
+  type SearchHit,
+} from '@/lib/viewer/pdf';
 import { cn } from '@/lib/utils';
 
 const THUMB_WIDTH = 132;
@@ -52,9 +57,15 @@ function Thumb({
         const scale = THUMB_WIDTH / full.width;
         await doc.render(index, canvas, { scale, rotation: 0 });
         if (!cancelled) setDrawn(true);
-      } catch {
-        // A page that will not draw small will report itself in the main
-        // view; the rail just leaves the slot blank.
+      } catch (cause) {
+        // Superseded by a newer request for the same canvas: expected, and the
+        // one that replaced it will draw.
+        if (isRenderCancelled(cause)) return;
+        // A page that will not draw small will report itself in the main view,
+        // so the rail only leaves the slot blank — but it still says why, since
+        // a silent catch here is what hid the render fault behind a thumbnail
+        // that merely looked slow.
+        console.error(`[rail] page ${index + 1} failed to draw`, cause);
       }
     })();
     return () => {
@@ -122,6 +133,58 @@ export function ThumbnailRail({
           <Thumb key={i} doc={doc} index={i} active={i === current} onGo={onGo} />
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The search results, as a list you can read and click.
+ *
+ * Stepping with the arrows tells you nothing about what you are stepping
+ * through. This gives every match its text and its page, marks the one you are
+ * on, and goes to any of them — the other half of navigating a search, which a
+ * next/previous pair alone cannot do. Apryse devotes a whole panel to it
+ * (PDF-VIEWER.md §8.2).
+ */
+export function SearchRail({
+  hits,
+  active,
+  searching,
+  onGo,
+}: {
+  hits: SearchHit[];
+  active: number;
+  searching: boolean;
+  onGo: (index: number) => void;
+}) {
+  return (
+    <div className="h-full overflow-auto p-1.5 scrollbar-thin">
+      <p className="text-muted-foreground px-1.5 pt-0.5 pb-1 text-[11px] font-semibold tracking-wider uppercase">
+        {hits.length === 0 && !searching
+          ? 'No matches'
+          : `${hits.length} match${hits.length === 1 ? '' : 'es'}`}
+        {searching ? ' so far…' : ''}
+      </p>
+      <ol className="m-0 list-none space-y-0.5 p-0">
+        {hits.map((hit, index) => (
+          <li key={`${hit.page}-${hit.start}`}>
+            <button
+              type="button"
+              onClick={() => onGo(index)}
+              aria-current={index === active}
+              className={cn(
+                'w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-xs',
+                index === active
+                  ? 'bg-primary/10 text-foreground ring-primary/30 ring-1'
+                  : 'hover:bg-muted text-muted-foreground',
+              )}
+            >
+              <span className="text-muted-foreground mr-1.5 tabular-nums">p{hit.page + 1}</span>
+              {hit.snippet}
+            </button>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

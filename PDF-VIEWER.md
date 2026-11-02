@@ -351,7 +351,96 @@ freedom afterwards.
 
 ---
 
-## 8. Unknowns
+## 8. How search, text geometry and annotation drawing actually work
+
+Recovered in a second pass, to answer three complaints about our own viewer:
+annotations slow to appear, text markup unreliable, search with no navigation
+and no visible highlight. The product ships its UI **source maps with
+`sourcesContent` populated** — 597 original modules in `webviewer-ui.min.js.map`
+alone, more across ~1 000 chunk maps — so the UI side is the vendor's own text,
+not a reconstruction. The engine side is the API surface of
+`webviewer-core.min.js` (2.62 MB, minified, no map).
+
+### 8.1 One text index per page, with a quad per character
+
+```
+getTextPosition(pageNumber, start, end)   // → Promise<quad[]>
+getSelectedTextQuads()                    // → { [pageNum]: quad[] }
+```
+
+`getTextPosition` loads the page's text data and slices a flat array of
+coordinates between `8 * start` and `8 * end`, reading eight numbers per step
+into `{x1,y1,x2,y2,x3,y3,x4,y4}`. So the page's text carries **one quad per
+character**, and *any* range of text becomes geometry by slicing. It rejects
+when `end <= start`.
+
+This is the primitive everything else stands on: a search hit, a highlight, an
+underline and a strike-out are all the same operation — a character range
+turned into quads — which is why in Apryse they cannot disagree with each other.
+
+**What we do.** `PageText` in `apps/web/src/lib/viewer/pdf.ts` is the same
+interface over PDF.js, which reports a position and width per *run* of glyphs
+rather than per character, so a range is interpolated within the run it falls
+in: exact at a run's edges, off by a fraction of a character inside one. The
+code it replaced used the whole run's bounding box, which was wrong by whole
+words.
+
+### 8.2 Search is a stream, with a result set and an active member
+
+```
+textSearchInit(searchValue, searchMode, isFullSearch, handleSearchResult)
+getPageSearchResults(pageNumber)        clearSearchResults()
+displaySearchResult(result)             displayAdditionalSearchResult(result)
+getActiveSearchResult()                 setActiveSearchResult(result)
+```
+
+A result is `{ ambientStr, resultStr, resultStrStart, resultStrEnd, pageNum,
+resultCode, quads }` — the match, its surrounding text, its character range,
+its page, and its geometry — carried twice, once camelCase and once snake_case.
+`resultCode` distinguishes a match from a **page** marker and a **done**
+marker, which is how the callback reports progress rather than returning a
+list: results arrive page by page while the walk continues.
+
+The UI (`hooks/useSearch.js`) keeps `searchResults`, `activeSearchResult` and
+`activeSearchResultIndex`, and listens for `searchResultsChanged`,
+`activeSearchResultChanged` and `searchInProgress`; status is one of
+`SEARCH_NOT_INITIATED`, `SEARCH_IN_PROGRESS`, `SEARCH_DONE`. Typing is
+debounced by 500 ms. The engine defaults the active result to the first one.
+Results are compared with `isSearchResultEqual`, not by object identity.
+
+Two separate ideas are worth naming, because collapsing them is what makes a
+search unusable: **display all the results** and **mark one of them active**.
+
+**What we do.** `search()` takes `onPage` and an `AbortSignal`, reports each
+page as it finishes and yields to the event loop between pages; the viewer
+holds an active index, steps with Enter and Shift+Enter, wraps around, shows
+"n of m", and scrolls the hit — not the top of its page — a third of the way
+down. The active hit is drawn in a stronger colour with an outline.
+
+### 8.3 Annotations are drawn per page, and requests coalesce
+
+```
+drawAnnotations({ pageNumber, overrideCanvas, majorRedraw, overrideContainer, namespace })
+```
+
+It draws onto a per-page 2D canvas — the `.auxiliary` canvas inside
+`#pageContainer{N}` — and schedules like this: if no draw is in flight for that
+page, draw now; if one is, store a **single** pending request, OR-ing
+`majorRedraw` into whatever was already pending, and return the in-flight
+promise. So many changes to one page collapse into one extra draw, and a
+request never queues behind more than one other.
+
+**What we do.** Annotations stay SVG (§7), which costs nothing to re-draw on
+zoom, but the scheduling applies to *page rendering*, where we had the bug this
+section was written to explain: a second `render()` on a canvas while the first
+is in flight is refused by PDF.js, and cancelling the first then starting
+another leaves a render that never settles. `enqueue` in `pdf.ts` now holds one
+canvas's work in order and keeps only the newest waiting request — Apryse's
+scheduling, arrived at from the same constraint.
+
+---
+
+## 9. Unknowns
 
 - The 12 `disabledElements` entries behind string-table indices (§2).
 - Whether `instance.Core.*` is used beyond `documentViewer` and
@@ -368,7 +457,7 @@ freedom afterwards.
 
 ---
 
-## 9. Method
+## 10. Method
 
 Static analysis only. Nothing was launched, attached to, or instrumented, and
 no installed file was modified. The REA MCP server provided the PE/CLI metadata
@@ -378,5 +467,8 @@ inspection (`Dms.Framework.dll` digest
 [REVERSE-ENGINEERING.md](REVERSE-ENGINEERING.md)); member decoding on
 `Dms.Framework.dll` exceeded REA's 64 MiB representation budget and is recorded
 as partial coverage rather than absence. The JavaScript integration was read
-from Dokmee's own shipped bundle. Apryse's engine was not decompiled and its
-shipped source maps were not reconstructed.
+from Dokmee's own shipped bundle. Apryse's engine was not decompiled; the
+behaviour in §8 was read from the API surface of `webviewer-core.min.js` and
+from the original modules the shipped UI source maps carry in their
+`sourcesContent` — the vendor's own text, read as reference and reimplemented,
+not copied.

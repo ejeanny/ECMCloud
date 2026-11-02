@@ -215,6 +215,17 @@
   mix-blend-mode: multiply;
 }
 
+/* The hit you were just taken to. Every other match stays visible, so the
+   difference has to be legible at a glance: stronger fill and an outline,
+   rather than a different shade of the same yellow. */
+.viewer-search-hit-active {
+  fill: #ff6f00;
+  opacity: 0.55;
+  stroke: #e65100;
+  stroke-width: 1.5;
+  mix-blend-mode: multiply;
+}
+
 .viewer-annotation-selected {
   fill: none;
   stroke: var(--primary);

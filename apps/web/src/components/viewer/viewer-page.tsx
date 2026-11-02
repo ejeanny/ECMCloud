@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AnnotationKind } from '@ecm/domain';
-import type { OpenDocument, RenderedPage } from '@/lib/viewer/pdf';
+import { isRenderCancelled, type OpenDocument, type RenderedPage } from '@/lib/viewer/pdf';
 import { AnnotationShapes, type ViewerAnnotation } from './annotation-shapes';
 
 export type Tool = 'select' | 'highlight' | 'underline' | 'strikeout' | 'ink' | 'note' | 'square';
@@ -25,8 +25,8 @@ interface Props {
   tool: Tool;
   color: string;
   annotations: ViewerAnnotation[];
-  /** PDF-space rects to flash as search hits. */
-  highlights: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+  /** PDF-space rects to flash as search hits, one of them the active one. */
+  highlights: Array<{ rect: { x1: number; y1: number; x2: number; y2: number }; active: boolean }>;
   estimated: { width: number; height: number };
   onDraw: (draft: DraftAnnotation) => void;
   onSelectAnnotation: (name: string | null) => void;
@@ -73,10 +73,20 @@ export function ViewerPage({
   // abandoned by the generation check rather than cancelled, because PDF.js
   // resolves the old task anyway and the late result would overwrite the new one.
   const generation = useRef(0);
+  /** What this canvas already holds, so an identical request is not redrawn. */
+  const drawn = useRef<string | null>(null);
   useEffect(() => {
     if (!active) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    // Nothing about the page has changed, so there is nothing to draw. This is
+    // not just an optimisation: in development React mounts every component
+    // twice, and two renders of one page onto one canvas is the case that has
+    // to cancel the first — which is the expensive, fragile path, taken here
+    // for no reason at all.
+    const wanted = `${scale}|${rotation}`;
+    if (drawn.current === wanted && canvas.width > 0) return;
 
     const mine = ++generation.current;
     let cancelled = false;
@@ -85,6 +95,7 @@ export function ViewerPage({
       try {
         const page = await doc.render(index, canvas, { scale, rotation });
         if (cancelled || mine !== generation.current) return;
+        drawn.current = wanted;
         setRendered(page);
         setSize({ width: page.width, height: page.height });
         onMeasured(index, { width: page.width, height: page.height });
@@ -92,9 +103,16 @@ export function ViewerPage({
         if (textRef.current) {
           await doc.renderText(index, textRef.current, { scale, rotation });
         }
-      } catch {
+      } catch (cause) {
+        // Superseded by a newer scale or rotation: the run that replaced this
+        // one will draw, so there is nothing to report and nothing to fix.
+        if (isRenderCancelled(cause)) return;
         // A failed page should not take the document down; it stays blank at
         // the right size so the rest of the scroll position is undisturbed.
+        // It does have to be *said*, though: swallowing this is what let the
+        // text layer fail silently, and a viewer with no text layer looks like
+        // a viewer whose highlighting and search are broken.
+        console.error(`[viewer] page ${index + 1} failed to render`, cause);
       }
     })();
 
@@ -112,6 +130,7 @@ export function ViewerPage({
       canvas.width = 0;
       canvas.height = 0;
     }
+    drawn.current = null;
     textRef.current?.replaceChildren();
     setRendered(null);
   }, [active]);
@@ -236,14 +255,21 @@ export function ViewerPage({
 
   // The markup tools act on whatever is selected, so they fire on mouse-up in
   // the text layer rather than needing a separate confirm step.
+  //
+  // `markSelection` is read through a ref because it closes over `rendered`:
+  // the effect had no dependency array at all, which kept the closure fresh by
+  // tearing the listener down and adding it again on every render of every page
+  // in the window. The ref does the same job once.
+  const mark = useRef(markSelection);
+  mark.current = markSelection;
   useEffect(() => {
     if (tool !== 'highlight' && tool !== 'underline' && tool !== 'strikeout') return;
     const host = hostRef.current;
     if (!host) return;
-    const handler = () => markSelection(tool);
+    const handler = () => mark.current(tool);
     host.addEventListener('mouseup', handler);
     return () => host.removeEventListener('mouseup', handler);
-  });
+  }, [tool]);
 
   return (
     <div
@@ -273,13 +299,13 @@ export function ViewerPage({
           height={size.height}
           style={{ pointerEvents: tool === 'select' ? 'auto' : 'none' }}
         >
-          {highlights.map((rect, i) => {
+          {highlights.map(({ rect, active }, i) => {
             const [x1, y1] = rendered.toViewport(rect.x1, rect.y2);
             const [x2, y2] = rendered.toViewport(rect.x2, rect.y1);
             return (
               <rect
                 key={`hit-${i}`}
-                className="viewer-search-hit"
+                className={active ? 'viewer-search-hit-active' : 'viewer-search-hit'}
                 x={Math.min(x1, x2)}
                 y={Math.min(y1, y2)}
                 width={Math.abs(x2 - x1)}

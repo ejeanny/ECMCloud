@@ -45,8 +45,9 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { InlineError } from '@/components/states';
+import type { Rect } from '@ecm/domain';
 import { openPdf, type OpenDocument, type OutlineItem, type SearchHit } from '@/lib/viewer/pdf';
-import { OutlineRail, ThumbnailRail } from './page-rail';
+import { OutlineRail, SearchRail, ThumbnailRail } from './page-rail';
 import { trpc } from '@/lib/trpc';
 import { cn } from '@/lib/utils';
 import { ViewerPage, type DraftAnnotation, type Tool } from './viewer-page';
@@ -105,27 +106,71 @@ export function PdfViewer({ nodeId, name, onClose }: Props) {
   const [pendingNote, setPendingNote] = useState<DraftAnnotation | null>(null);
   const [noteText, setNoteText] = useState('');
 
-  const [rail, setRail] = useState<'thumbnails' | 'outline' | null>('thumbnails');
+  const [rail, setRail] = useState<'thumbnails' | 'outline' | 'search' | null>('thumbnails');
   const [pageInput, setPageInput] = useState('1');
 
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
+  /** Which hit the viewer is parked on; -1 before any has been chosen. */
+  const [activeHit, setActiveHit] = useState(-1);
+  const [annotationError, setAnnotationError] = useState<string | null>(null);
   const [outline, setOutline] = useState<OutlineItem[]>([]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [viewportWidth, setViewportWidth] = useState(0);
 
+  /** The query the current results belong to, so Enter can mean "next". */
+  const lastQuery = useRef('');
+  /** The walk in progress: a new query abandons it instead of racing it. */
+  const search = useRef<AbortController | null>(null);
+  /** A hit to scroll to once the results it belongs to are in state. */
+  const queuedJump = useRef<number | null>(null);
+
   const utils = trpc.useUtils();
   const annotations = trpc.annotation.list.useQuery({ nodeId });
+  /**
+   * Draw first, then save.
+   *
+   * A mark used to appear only after the save had been round-tripped and the
+   * whole list refetched — two requests between letting go of the mouse and
+   * seeing anything, which reads as a viewer that is thinking about it. The
+   * drawing is already known locally, so it goes into the cache immediately and
+   * the server's answer only has to agree. A rejected save puts the list back
+   * and says why, instead of leaving a mark that looks saved and is not.
+   */
   const save = trpc.annotation.save.useMutation({
-    onSuccess: () => utils.annotation.list.invalidate({ nodeId }),
+    onMutate: async (input) => {
+      await utils.annotation.list.cancel({ nodeId });
+      const previous = utils.annotation.list.getData({ nodeId });
+      utils.annotation.list.setData({ nodeId }, (old) => [
+        ...(old ?? []),
+        ...(input.annotations as unknown as NonNullable<typeof old>),
+      ]);
+      return { previous };
+    },
+    onError: (cause, _input, context) => {
+      utils.annotation.list.setData({ nodeId }, context?.previous);
+      setAnnotationError(cause.message);
+    },
+    onSettled: () => utils.annotation.list.invalidate({ nodeId }),
   });
   const remove = trpc.annotation.remove.useMutation({
-    onSuccess: () => {
+    onMutate: async (input) => {
       setSelected(null);
-      void utils.annotation.list.invalidate({ nodeId });
+      await utils.annotation.list.cancel({ nodeId });
+      const previous = utils.annotation.list.getData({ nodeId });
+      const going = new Set(input.names);
+      utils.annotation.list.setData({ nodeId }, (old) =>
+        (old ?? []).filter((a) => !going.has(a.name)),
+      );
+      return { previous };
     },
+    onError: (cause, _input, context) => {
+      utils.annotation.list.setData({ nodeId }, context?.previous);
+      setAnnotationError(cause.message);
+    },
+    onSettled: () => utils.annotation.list.invalidate({ nodeId }),
   });
   const importXfdf = trpc.annotation.importXfdf.useMutation({
     onSuccess: () => utils.annotation.list.invalidate({ nodeId }),
@@ -380,29 +425,125 @@ export function PdfViewer({ nodeId, name, onClose }: Props) {
 
   const burnedCount = (annotations.data ?? []).filter((a) => a.burnedAt).length;
 
+  /**
+   * Every hit on a page, with the active one marked.
+   *
+   * Apryse keeps the same two ideas apart (PDF-VIEWER.md §8): all results are
+   * shown at once, and one of them is *active* — `displayAdditionalSearchResult`
+   * against `setActiveSearchResult`. Without that distinction a search of a
+   * long document is a page of identical yellow boxes with no way to tell which
+   * one you were just taken to.
+   */
   const hitsByPage = useMemo(() => {
-    const map = new Map<number, Array<{ x1: number; y1: number; x2: number; y2: number }>>();
-    for (const hit of hits ?? []) {
+    const map = new Map<number, Array<{ rect: Rect; active: boolean }>>();
+    (hits ?? []).forEach((hit, index) => {
       const list = map.get(hit.page) ?? [];
-      list.push(...hit.rects);
+      for (const rect of hit.rects) list.push({ rect, active: index === activeHit });
       map.set(hit.page, list);
-    }
+    });
     return map;
-  }, [hits]);
+  }, [hits, activeHit]);
+
+  /** Put a hit on screen: its page, and the hit itself within that page. */
+  const goToHit = useCallback(
+    (index: number) => {
+      const hit = hits?.[index];
+      const el = scrollRef.current;
+      if (!hit || !el) return;
+      setActiveHit(index);
+
+      // Draw the page now rather than when the scroll lands on it. A smooth
+      // scroll across a long document takes long enough that the target would
+      // otherwise arrive blank and fill in afterwards.
+      setCurrent(hit.page);
+      setWindow([Math.max(0, hit.page - 1), Math.min(layout.length - 1, hit.page + 2)]);
+
+      let offset = 0;
+      for (let i = 0; i < hit.page; i++) offset += (layout[i]?.height ?? 0) + 16;
+
+      // Place the hit itself a third of the way down, rather than scrolling to
+      // the top of its page and leaving the user to find it. The rect is in PDF
+      // user space with y up, so what is above it is the rest of the page —
+      // a fraction of this page's own height in points, against its height on
+      // screen. Per page, because a document may mix page sizes.
+      //
+      // Turned a quarter, PDF y no longer runs down the screen at all and the
+      // fraction would be nonsense: land on the page instead and let the
+      // highlight be found.
+      const onScreen = layout[hit.page];
+      const points = sizes[hit.page];
+      const top = hit.rects[0]?.y2;
+      if (onScreen && points && top !== undefined && points.height > 0 && rotation % 180 === 0) {
+        offset += Math.max(0, (1 - top / points.height) * onScreen.height - el.clientHeight / 3);
+      }
+      el.scrollTo({ top: offset, behavior: 'smooth' });
+    },
+    [hits, layout, sizes, rotation],
+  );
+
+  // The jump has to wait for the results to be in state, because that is what
+  // decides which page is rendered and how tall the ones above it are.
+  useEffect(() => {
+    if (queuedJump.current === null || !hits || hits.length === 0) return;
+    const index = queuedJump.current;
+    queuedJump.current = null;
+    goToHit(index);
+  }, [hits, goToHit]);
+
+  const step = useCallback(
+    (by: 1 | -1) => {
+      if (!hits || hits.length === 0) return;
+      // Wrapping round is what every other find box does, and it saves the
+      // user deciding whether they have reached the end.
+      goToHit((activeHit + by + hits.length) % hits.length);
+    },
+    [hits, activeHit, goToHit],
+  );
 
   async function runSearch(event: React.FormEvent) {
     event.preventDefault();
-    if (!doc || !query.trim()) {
-      setHits(null);
+    // Submitting again with the same query means "next", the way a browser's
+    // own find does, instead of searching the document a second time.
+    if (hits && hits.length > 0 && query.trim() === lastQuery.current) {
+      step(1);
       return;
     }
+    if (!doc || !query.trim()) {
+      setHits(null);
+      setActiveHit(-1);
+      return;
+    }
+
+    lastQuery.current = query.trim();
+    // Show the results where they can be read, the way asking to search does
+    // everywhere else; the rail is already open on the thumbnails.
+    setRail('search');
+    search.current?.abort();
+    const abort = new AbortController();
+    search.current = abort;
+
     setSearching(true);
+    setHits([]);
+    setActiveHit(-1);
     try {
-      const found = await doc.search(query);
-      setHits(found);
-      if (found.length > 0) goTo(found[0]!.page);
+      const collected: SearchHit[] = [];
+      await doc.search(query, {
+        signal: abort.signal,
+        onPage: ({ hits: found }) => {
+          if (found.length === 0 || abort.signal.aborted) return;
+          collected.push(...found);
+          // Show what has been found so far, and park on the first hit as soon
+          // as there is one: the page it is on is then already rendering while
+          // the rest of the document is still being read.
+          setHits([...collected]);
+          if (collected.length === found.length) {
+            setActiveHit(0);
+            queuedJump.current = 0;
+          }
+        },
+      });
     } finally {
-      setSearching(false);
+      if (!abort.signal.aborted) setSearching(false);
     }
   }
 
@@ -599,18 +740,53 @@ export function PdfViewer({ nodeId, name, onClose }: Props) {
               placeholder="Find in document"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              // Shift+Enter walks backwards, as in a browser's own find bar.
+              // Enter alone is handled by the form, where repeating the same
+              // query steps to the next match instead of searching again.
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.shiftKey) {
+                  e.preventDefault();
+                  step(-1);
+                }
+              }}
             />
           </div>
           <Button type="submit" size="sm" variant="outline" disabled={searching}>
             {searching ? <Loader2 className="animate-spin" /> : null}
             {searching ? 'Searching…' : 'Find'}
           </Button>
-          {hits ? (
-            <span className="text-muted-foreground text-xs whitespace-nowrap">
-              {hits.length === 0
-                ? 'no matches'
-                : `${hits.length} match${hits.length === 1 ? '' : 'es'}`}
-            </span>
+
+          {hits && hits.length > 0 ? (
+            <>
+              {/* Which match of how many. Without it, stepping through a long
+                  document tells you nothing about where you are in it. */}
+              <span className="text-muted-foreground text-xs whitespace-nowrap tabular-nums">
+                {activeHit + 1} of {hits.length}
+                {searching ? '…' : ''}
+              </span>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Previous match"
+                title="Previous match (Shift+Enter)"
+                onClick={() => step(-1)}
+              >
+                <ChevronLeft />
+              </Button>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Next match"
+                title="Next match (Enter)"
+                onClick={() => step(1)}
+              >
+                <ChevronRight />
+              </Button>
+            </>
+          ) : hits && !searching ? (
+            <span className="text-muted-foreground text-xs whitespace-nowrap">no matches</span>
           ) : null}
         </form>
 
@@ -757,13 +933,29 @@ export function PdfViewer({ nodeId, name, onClose }: Props) {
         </div>
       ) : null}
 
+      {/* A rejected annotation used to vanish without a word: the mark was
+          never drawn and nothing said why, which is indistinguishable from a
+          tool that does not work. */}
+      {annotationError ? (
+        <Alert variant="destructive" className="mb-2">
+          <CircleAlert />
+          <AlertTitle>That mark was not saved</AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-3">
+            <span>{annotationError}</span>
+            <Button size="sm" variant="outline" onClick={() => setAnnotationError(null)}>
+              Dismiss
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="flex min-h-0 flex-1 gap-2">
         {rail && doc ? (
           <nav
             aria-label="Pages"
             className="bg-card hidden w-44 flex-none flex-col overflow-hidden rounded-xl border lg:flex"
           >
-            {outline.length > 0 ? (
+            {outline.length > 0 || hits !== null ? (
               <div className="flex gap-1 border-b p-1.5">
                 <Button
                   variant={rail === 'thumbnails' ? 'secondary' : 'ghost'}
@@ -774,19 +966,38 @@ export function PdfViewer({ nodeId, name, onClose }: Props) {
                   <Rows3 />
                   Pages
                 </Button>
-                <Button
-                  variant={rail === 'outline' ? 'secondary' : 'ghost'}
-                  size="xs"
-                  className="flex-1"
-                  onClick={() => setRail('outline')}
-                >
-                  Contents
-                </Button>
+                {outline.length > 0 ? (
+                  <Button
+                    variant={rail === 'outline' ? 'secondary' : 'ghost'}
+                    size="xs"
+                    className="flex-1"
+                    onClick={() => setRail('outline')}
+                  >
+                    Contents
+                  </Button>
+                ) : null}
+                {hits !== null ? (
+                  <Button
+                    variant={rail === 'search' ? 'secondary' : 'ghost'}
+                    size="xs"
+                    className="flex-1"
+                    onClick={() => setRail('search')}
+                  >
+                    Results
+                  </Button>
+                ) : null}
               </div>
             ) : null}
 
             <div className="min-h-0 flex-1">
-              {rail === 'outline' && outline.length > 0 ? (
+              {rail === 'search' && hits !== null ? (
+                <SearchRail
+                  hits={hits}
+                  active={activeHit}
+                  searching={searching}
+                  onGo={goToHit}
+                />
+              ) : rail === 'outline' && outline.length > 0 ? (
                 <OutlineRail items={outline} onGo={goTo} />
               ) : (
                 <ThumbnailRail

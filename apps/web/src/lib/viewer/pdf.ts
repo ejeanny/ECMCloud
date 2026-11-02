@@ -27,10 +27,43 @@ export interface RenderedPage extends PageSize {
 export interface SearchHit {
   /** 0-based. */
   page: number;
+  /** Character offsets into the page's text, which is what a hit *is*. */
+  start: number;
+  end: number;
   /** In PDF user space, so a hit survives a zoom or a rotation. */
   rects: Rect[];
   /** The matched text with a little context either side. */
   snippet: string;
+}
+
+export interface SearchOptions {
+  caseSensitive?: boolean;
+  /** Called as each page is finished, so results can be shown while the rest run. */
+  onPage?: (progress: { page: number; pageCount: number; hits: SearchHit[] }) => void;
+  /** Abandons the walk; a superseded query should not keep reading pages. */
+  signal?: AbortSignal;
+}
+
+/**
+ * One page's text as a single string, plus the geometry of any range of it.
+ *
+ * This is the primitive Apryse exposes as `getTextPosition(page, start, end)`,
+ * recovered in PDF-VIEWER.md §8: its page text data carries eight numbers per
+ * character — a quad each — and a range of text becomes geometry by slicing
+ * that array between `8 * start` and `8 * end`. Everything that has to point at
+ * text is built on it: a search hit, a highlight, an underline, a strike-out.
+ *
+ * PDF.js gives a position and width per *item* (a run of glyphs), not per
+ * character, so `quads` interpolates within an item. That is exact at an item's
+ * edges and off by a fraction of a character width inside it — against the
+ * whole-item box this replaces, which was wrong by whole words.
+ */
+export interface PageText {
+  text: string;
+  /** Quads for `[start, end)`, eight numbers each: UL, UR, LL, LR. */
+  quads(start: number, end: number): number[];
+  /** The same quads as bounding boxes, one per line of the range. */
+  rects(start: number, end: number): Rect[];
 }
 
 export interface OutlineItem {
@@ -60,7 +93,9 @@ export interface OpenDocument {
     container: HTMLElement,
     options: RenderOptions,
   ): Promise<void>;
-  search(query: string, options?: { caseSensitive?: boolean }): Promise<SearchHit[]>;
+  /** The page's text and the geometry of any range of it. Cached per page. */
+  textOf(page: number): Promise<PageText>;
+  search(query: string, options?: SearchOptions): Promise<SearchHit[]>;
   outline(): Promise<OutlineItem[]>;
   destroy(): void;
 }
@@ -70,6 +105,101 @@ export interface OpenDocument {
 type PdfJs = typeof import('pdfjs-dist');
 
 let lib: PdfJs | null = null;
+
+interface Cancellable {
+  cancel(): void;
+  promise: Promise<void>;
+}
+
+interface Job<T> {
+  run: () => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (cause: unknown) => void;
+}
+
+interface Queue {
+  busy: boolean;
+  /** At most one waiting job: an older one would draw a bitmap nobody wants. */
+  next: Job<never> | null;
+}
+
+const queues = new WeakMap<HTMLCanvasElement, Queue>();
+
+/**
+ * Serialise work on one canvas, keeping only the newest waiting request.
+ *
+ * PDF.js enforces "one render per canvas" on the canvas itself, so the registry
+ * has to live there too — per document is not enough, because React's
+ * development double invoke mounts the viewer twice and two renders of one page
+ * onto one canvas is exactly the case that breaks.
+ *
+ * It queues rather than cancels, which is the opposite of what this code did
+ * first. Cancelling looks right — why draw a bitmap that is already stale? —
+ * but PDF.js tears a page's render intent down asynchronously, and a
+ * replacement render started on that same page afterwards waits for operators
+ * the worker will never send: it neither resolves nor rejects. That is how the
+ * viewer came to show three blank pages with nothing in the console. Apryse
+ * reached the same conclusion (PDF-VIEWER.md §8): when a page is already
+ * drawing it keeps a *single* pending request and runs it when the current one
+ * finishes, with no cancellation anywhere in the path.
+ */
+function enqueue<T>(canvas: HTMLCanvasElement, run: () => Promise<T>): Promise<T> {
+  let queue = queues.get(canvas);
+  if (!queue) {
+    queue = { busy: false, next: null };
+    queues.set(canvas, queue);
+  }
+  const q = queue;
+
+  return new Promise<T>((resolve, reject) => {
+    const job = { run, resolve, reject } as unknown as Job<never>;
+    // Whatever was waiting is now out of date; tell its caller so, in the same
+    // terms PDF.js uses for a cancelled render.
+    q.next?.reject(superseded());
+    q.next = job;
+    if (!q.busy) void pump(q);
+  });
+}
+
+async function pump(q: Queue): Promise<void> {
+  q.busy = true;
+  try {
+    while (q.next) {
+      const job = q.next;
+      q.next = null;
+      try {
+        job.resolve(await job.run());
+      } catch (cause) {
+        job.reject(cause);
+      }
+    }
+  } finally {
+    q.busy = false;
+  }
+}
+
+function superseded(): Error {
+  const error = new Error('Rendering superseded by a newer request');
+  // The component tells "superseded" from "broken" by name, and this is the
+  // name PDF.js gives the same situation.
+  error.name = 'RenderingCancelledException';
+  return error;
+}
+
+/**
+ * Was this render superseded rather than broken?
+ *
+ * The caller needs to tell the two apart: a superseded render is the normal
+ * outcome of zooming while a page is still drawing, and reporting it as a
+ * failure is how a working viewer comes to look like a broken one.
+ */
+export function isRenderCancelled(cause: unknown): boolean {
+  return (
+    typeof cause === 'object' &&
+    cause !== null &&
+    (cause as { name?: string }).name === 'RenderingCancelledException'
+  );
+}
 
 /**
  * Loaded on first use rather than imported at module scope: PDF.js reaches for
@@ -123,6 +253,11 @@ export async function openPdf({ url, onProgress }: OpenOptions): Promise<OpenDoc
   // `getPage` is not free on a large document, so pages are cached as they are
   // first touched rather than walked up front.
   const pages = new Map<number, Promise<Awaited<ReturnType<typeof doc.getPage>>>>();
+  /** This document's running renders, so `destroy` can stop them. */
+  const inflight = new Set<Cancellable>();
+  /** Page text, built once: it is read by search and by every markup gesture. */
+  const texts = new Map<number, Promise<PageText>>();
+
   function page(index: number) {
     let p = pages.get(index);
     if (!p) {
@@ -130,6 +265,159 @@ export async function openPdf({ url, onProgress }: OpenOptions): Promise<OpenDoc
       pages.set(index, p);
     }
     return p;
+  }
+
+  interface TextItem {
+    str?: string;
+    transform?: number[];
+    width?: number;
+    height?: number;
+    hasEOL?: boolean;
+  }
+
+  /**
+   * Build the page's text index: the string, and enough geometry per run of
+   * glyphs to place any character range back on the page.
+   */
+  async function buildText(index: number): Promise<PageText> {
+    const p = await page(index);
+    const content = await p.getTextContent({ includeMarkedContent: false });
+    const items = content.items as TextItem[];
+
+    let text = '';
+    const runs: Array<{ from: number; to: number; item: TextItem }> = [];
+
+    for (const item of items) {
+      const str = item.str ?? '';
+      if (str.length > 0) {
+        runs.push({ from: text.length, to: text.length + str.length, item });
+        text += str;
+      }
+      // PDF.js marks where a visual line ends. Without a break here the page
+      // reads as one long line, and a search for two words matches a pair that
+      // only looks adjacent because one ends a line and the other starts the
+      // next.
+      if (item.hasEOL) text += '\n';
+    }
+
+    function quads(start: number, end: number): number[] {
+      if (!(end > start)) return [];
+      const out: number[] = [];
+
+      for (const run of runs) {
+        if (run.to <= start || run.from >= end) continue;
+        const t = run.item.transform;
+        if (!t || t.length < 6) continue;
+
+        const [a, b, , d, e, f] = t as [number, number, number, number, number, number];
+        const length = run.to - run.from;
+        const width = run.item.width ?? 0;
+        const height = run.item.height || Math.abs(d) || 10;
+
+        // Where in this run the wanted range starts and ends, as a distance
+        // along the baseline. Interpolating by character count is exact at the
+        // run's edges and off by a fraction of a character inside it — PDF.js
+        // reports no per-character advance, so this is the honest limit of the
+        // approach, and still an item's worth tighter than the box it replaces.
+        const from = (Math.max(start, run.from) - run.from) / length;
+        const to = (Math.min(end, run.to) - run.from) / length;
+        const near = width * from;
+        const far = width * to;
+
+        // The text matrix carries the rotation, so the quad is built from the
+        // baseline direction and its perpendicular rather than from axis-aligned
+        // minimums: rotated text then gets a rotated quad instead of a box that
+        // swallows the whole line.
+        const norm = Math.hypot(a, b) || 1;
+        const ux = a / norm;
+        const uy = b / norm;
+        const vx = -uy;
+        const vy = ux;
+        // Typical proportions of a font's ascent and descent about the
+        // baseline; a highlight has to cover the glyphs, not just hug them.
+        const up = height * 0.78;
+        const down = height * 0.22;
+        const at = (along: number, off: number): [number, number] => [
+          e + ux * along + vx * off,
+          f + uy * along + vy * off,
+        ];
+
+        const [ulx, uly] = at(near, up);
+        const [urx, ury] = at(far, up);
+        const [llx, lly] = at(near, -down);
+        const [lrx, lry] = at(far, -down);
+        // XFDF quadpoint order, the one Acrobat writes: UL, UR, LL, LR.
+        out.push(ulx, uly, urx, ury, llx, lly, lrx, lry);
+      }
+
+      return out;
+    }
+
+    return {
+      text,
+      quads,
+      rects(start, end) {
+        const flat = quads(start, end);
+        const out: Rect[] = [];
+        for (let i = 0; i + 7 < flat.length; i += 8) {
+          const xs = [flat[i]!, flat[i + 2]!, flat[i + 4]!, flat[i + 6]!];
+          const ys = [flat[i + 1]!, flat[i + 3]!, flat[i + 5]!, flat[i + 7]!];
+          out.push({
+            x1: Math.min(...xs),
+            y1: Math.min(...ys),
+            x2: Math.max(...xs),
+            y2: Math.max(...ys),
+          });
+        }
+        return out;
+      },
+    };
+  }
+
+  function textOf(index: number): Promise<PageText> {
+    let t = texts.get(index);
+    if (!t) {
+      t = buildText(index);
+      texts.set(index, t);
+    }
+    return t;
+  }
+
+  /** One page onto one canvas. Only ever called from the canvas's queue. */
+  async function draw(
+    index: number,
+    canvas: HTMLCanvasElement,
+    options: RenderOptions,
+  ): Promise<RenderedPage> {
+    const p = await page(index);
+    const vp = viewportFor(p, options);
+
+    // Draw at device resolution and scale back down with CSS, or text and
+    // hairlines are visibly soft on any HiDPI screen.
+    const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
+    canvas.width = Math.floor(vp.width * dpr);
+    canvas.height = Math.floor(vp.height * dpr);
+    canvas.style.width = `${Math.floor(vp.width)}px`;
+    canvas.style.height = `${Math.floor(vp.height)}px`;
+
+    const renderTask = p.render({
+      canvas,
+      viewport: vp,
+      transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0],
+    });
+    inflight.add(renderTask);
+    try {
+      await renderTask.promise;
+    } finally {
+      inflight.delete(renderTask);
+    }
+
+    return {
+      width: vp.width,
+      height: vp.height,
+      toPdf: (x, y) => vp.convertToPdfPoint(x, y) as [number, number],
+      toViewport: (x, y) => vp.convertToViewportPoint(x, y) as [number, number],
+    };
   }
 
   function viewportFor(
@@ -149,30 +437,8 @@ export async function openPdf({ url, onProgress }: OpenOptions): Promise<OpenDoc
       return { width: vp.width, height: vp.height };
     },
 
-    async render(index, canvas, options) {
-      const p = await page(index);
-      const vp = viewportFor(p, options);
-
-      // Draw at device resolution and scale back down with CSS, or text and
-      // hairlines are visibly soft on any HiDPI screen.
-      const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
-      canvas.width = Math.floor(vp.width * dpr);
-      canvas.height = Math.floor(vp.height * dpr);
-      canvas.style.width = `${Math.floor(vp.width)}px`;
-      canvas.style.height = `${Math.floor(vp.height)}px`;
-
-      await p.render({
-        canvas,
-        viewport: vp,
-        transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0],
-      }).promise;
-
-      return {
-        width: vp.width,
-        height: vp.height,
-        toPdf: (x, y) => vp.convertToPdfPoint(x, y) as [number, number],
-        toViewport: (x, y) => vp.convertToViewportPoint(x, y) as [number, number],
-      };
+    render(index, canvas, options) {
+      return enqueue(canvas, () => draw(index, canvas, options));
     },
 
     async renderText(index, container, options) {
@@ -190,72 +456,56 @@ export async function openPdf({ url, onProgress }: OpenOptions): Promise<OpenDoc
       await layer.render();
     },
 
+    textOf,
+
     /**
      * Free-text search across every page.
      *
-     * Hit rectangles are the bounding boxes of the *text items* that contain the
-     * match, not of the matched glyphs: PDF.js reports a position and width per
-     * item, and splitting an item to the character would mean re-measuring the
-     * font. The result is a highlight that can be a little generous at the ends
-     * of a match — accurate enough to find something, and honest about what it
-     * is rather than silently wrong.
+     * A hit is a character range in a page's text, and its geometry comes from
+     * the page's text index — so a highlight covers the match and not the run
+     * of glyphs that happens to contain it.
+     *
+     * Pages are reported as they finish (`onPage`) and the walk yields to the
+     * event loop between them. That is the difference between a search that
+     * shows its first results immediately and one that holds the tab still
+     * until a 400-page scan is done — Apryse streams the same way, through a
+     * per-result callback with page and done markers (PDF-VIEWER.md §8).
      */
     async search(query, options) {
-      const needle = options?.caseSensitive ? query : query.toLowerCase();
+      const caseSensitive = options?.caseSensitive ?? false;
+      const needle = caseSensitive ? query : query.toLowerCase();
       if (!needle.trim()) return [];
 
-      const hits: SearchHit[] = [];
+      const all: SearchHit[] = [];
       for (let index = 0; index < doc.numPages; index++) {
-        const p = await page(index);
-        const content = await p.getTextContent({ includeMarkedContent: false });
+        if (options?.signal?.aborted) break;
 
-        // One string per page plus a map back to the item each character came
-        // from, so a match that straddles two items resolves to both.
-        let text = '';
-        const owner: number[] = [];
-        const items = content.items as Array<{
-          str?: string;
-          transform?: number[];
-          width?: number;
-          height?: number;
-        }>;
-        items.forEach((item, i) => {
-          const str = item.str ?? '';
-          text += str;
-          for (let c = 0; c < str.length; c++) owner.push(i);
-        });
+        const pageText = await textOf(index);
+        const haystack = caseSensitive ? pageText.text : pageText.text.toLowerCase();
+        const hits: SearchHit[] = [];
 
-        const haystack = options?.caseSensitive ? text : text.toLowerCase();
-        let from = 0;
-        for (;;) {
-          const at = haystack.indexOf(needle, from);
-          if (at < 0) break;
-          from = at + needle.length;
-
-          const touched = new Set(owner.slice(at, at + needle.length));
-          const rects: Rect[] = [];
-          for (const i of touched) {
-            const item = items[i];
-            if (!item?.transform) continue;
-            // transform is [a,b,c,d,e,f]; e,f is the baseline origin in PDF
-            // space and d carries the glyph height for unrotated text.
-            const [, , , d, e, f] = item.transform as [
-              number, number, number, number, number, number,
-            ];
-            const height = item.height || Math.abs(d) || 10;
-            rects.push({ x1: e, y1: f, x2: e + (item.width ?? 0), y2: f + height });
-          }
-          if (rects.length === 0) continue;
-
+        let at = haystack.indexOf(needle);
+        while (at >= 0) {
+          const end = at + needle.length;
           hits.push({
             page: index,
-            rects,
-            snippet: text.slice(Math.max(0, at - 32), at + needle.length + 32).trim(),
+            start: at,
+            end,
+            rects: pageText.rects(at, end),
+            snippet: pageText.text.slice(Math.max(0, at - 40), end + 40).replace(/\s+/g, ' ').trim(),
           });
-          if (hits.length >= 500) return hits;
+          if (all.length + hits.length >= 2000) break;
+          at = haystack.indexOf(needle, end);
         }
+
+        all.push(...hits);
+        options?.onPage?.({ page: index, pageCount: doc.numPages, hits });
+        if (all.length >= 2000) break;
+        // Hand the main thread back between pages so results paint as they are
+        // found and the toolbar stays responsive.
+        await new Promise((resolve) => setTimeout(resolve, 0));
       }
-      return hits;
+      return all;
     },
 
     async outline() {
@@ -296,11 +546,14 @@ export async function openPdf({ url, onProgress }: OpenOptions): Promise<OpenDoc
     },
 
     destroy() {
+      for (const running of inflight) running.cancel();
+      inflight.clear();
       // On the loading task, not the document: this aborts any request still in
       // flight *and* terminates the worker. Calling the document's `cleanup()`
       // instead would leave a worker behind for every document ever opened.
       void task.destroy();
       pages.clear();
+      texts.clear();
     },
   };
 }
