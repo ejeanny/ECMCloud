@@ -155,6 +155,13 @@ The data model carries the columns these features need (`emailFrom`,
 `hasDigitalSignature`, `encryptedKey`, stamp and signature tables), so adding
 an engine is a handler, not a migration.
 
+For the viewer specifically, [PDF-VIEWER.md](PDF-VIEWER.md) records how Dokmee
+drives Apryse WebViewer — the 8 constructor options it sets, the 6 instance
+members it touches, the XFDF annotation channel and the server-side operations
+behind it — and sets out the open-source path (PDF.js in the browser, `pdf-lib`
+and `qpdf` on the server) with an honest account of what has no good
+replacement.
+
 ## Design decisions that differ from Dokmee
 
 Set out with reasons in [REVERSE-ENGINEERING.md §6](REVERSE-ENGINEERING.md).
