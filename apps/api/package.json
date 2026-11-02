@@ -16,7 +16,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "dev": "node --env-file-if-exists=.env --watch --experimental-strip-types src/server.ts",
+    "dev": "tsc -b && (tsc -b --watch --preserveWatchOutput & node --env-file-if-exists=.env --watch --watch-preserve-output dist/server.js)",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "build": "tsc -b",
     "typecheck": "tsc -b --noEmit false"

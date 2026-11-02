@@ -101,15 +101,20 @@ Seed the four built-in roles, an administrator and a demo cabinet:
 ECM_ADMIN_PASSWORD='<choose one>' npm run db:seed
 ```
 
-Run both processes:
+Run both processes — one command starts the API and the web app together:
 
 ```bash
-npm run dev:api
+npm run dev
 ```
 
-```bash
-npm run dev:web
-```
+Then open <http://localhost:3000> and sign in as `admin` with the password you
+just seeded. `npm run dev:api` and `npm run dev:web` run either half alone.
+
+The API is watched through `tsc`, not run from `src` directly: its imports
+carry `.js` specifiers because they are written for the compiled output, and
+Node's type stripping does not rewrite a `.js` specifier to the `.ts` beside
+it. `npm run dev:api` therefore builds once, then leaves `tsc -b --watch`
+writing `dist/` and `node --watch` restarting on it.
 
 The web app proxies `/trpc`, `/file` and `/upload` to the API, so the browser
 stays on one origin and the session cookie is first-party.
