@@ -489,10 +489,34 @@ Three gaps, stated plainly:
   result by content hash, as Dokmee cached its own in `App_Data` [observed:
   `ViewerHelperUtil`]. With nothing configured the feature is absent rather
   than broken: `session.me` reports the capability, and the viewer keeps the
-  renderers it has. **Not verified against LibreOffice itself** — it is not
-  installed on the machine this was written on, so the argument list, the
-  cache, and every failure path were tested against a stand-in that imitates
-  its interface, and the real converter's output has not been seen.
+  renderers it has.
+
+  Verified against LibreOffice 26.8.2.2 [observed]: a two-page `.docx` came
+  back as two Letter pages with its text and its page break intact, an `.xlsx`
+  as one A4 page, an `.rtf` as one Letter page, each in 2.6–3.0s, and the
+  second request for the same bytes served the cache without starting the
+  converter.
+
+### What conversion costs you
+
+Two properties of rendering a document to PDF, neither of them this code's
+doing and both of them true of Dokmee's viewer as well:
+
+**A converted spreadsheet contains what was visible, not what was in the
+cell.** `CONVERSION-MARKER-GAMMA` in a column narrow enough to clip it comes
+back from the PDF as `CONVERS`. Whatever the column hides is not in the file
+and cannot be searched or highlighted. For an ECM this is the sharp edge: a
+long invoice number in a narrow column is not findable in the converted view,
+though it is still in the stored spreadsheet. Full-text indexing should read
+the original, never the rendition.
+
+**A conversion is a second rendering of the document, not the document.**
+Fonts that are not installed are substituted, and the layout can move. The
+stored file is unchanged and remains what is downloaded; it is the *view* that
+is derived. This is also why annotations on a converted document are kept
+beside it rather than burned into it — and why the cache key is the content
+hash, so the same bytes always produce the same geometry to store marks
+against.
 - **No text layer on a converted image** — an image has no text, so search and
   the text markups do not apply to it; ink, box and note do. Dokmee closes this
   with OCR (`AddOCRService`), which this rebuild lists as an explicit stub.
