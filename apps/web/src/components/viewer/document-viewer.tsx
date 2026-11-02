@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatFor, type ViewerFormat } from '@/lib/viewer/formats';
+import { convertsToPdf } from '@/lib/viewer/to-pdf';
 import { PdfViewer } from './pdf-viewer';
 import { CsvRenderer } from './renderers/csv-renderer';
 import { DocxRenderer } from './renderers/docx-renderer';
@@ -56,8 +57,12 @@ const FORMAT_LABEL: Partial<Record<ViewerFormat, string>> = {
 export function DocumentViewer({ nodeId, name, ext, byteLength, onClose }: Props) {
   const format = formatFor(ext);
 
-  if (format === 'pdf') {
-    return <PdfViewer nodeId={nodeId} name={name} onClose={onClose} />;
+  // A raster image opens as a PDF of one page, which is how Apryse shows one
+  // (PDF-VIEWER.md §2, `loadAsPDF`). It is not presentation for its own sake:
+  // annotations, the text layer, search and thumbnails are all built on PDF
+  // pages, so an image shown as an `<img>` is an image nobody can mark up.
+  if (format === 'pdf' || convertsToPdf(ext)) {
+    return <PdfViewer nodeId={nodeId} name={name} ext={ext} onClose={onClose} />;
   }
 
   return (

@@ -1,4 +1,5 @@
 import type { Rect } from '@ecm/domain';
+import { convertsToPdf, imageToPdf } from './to-pdf';
 
 /**
  * The viewer seam (PDF-VIEWER.md §7).
@@ -80,6 +81,11 @@ export interface RenderOptions {
 
 export interface OpenDocument {
   readonly pageCount: number;
+  /**
+   * How this document became a PDF, or null if it already was one. The viewer
+   * says so rather than letting a converted page pass for the original file.
+   */
+  readonly converted: string | null;
   /** Size without rendering, for laying out a page that is not drawn yet. */
   size(page: number, options: RenderOptions): Promise<PageSize>;
   render(
@@ -217,17 +223,73 @@ async function pdfjs(): Promise<PdfJs> {
   return lib;
 }
 
+/**
+ * Fetch the whole file, reporting progress as it arrives.
+ *
+ * PDF.js does its own fetching for a PDF; a format that has to be converted
+ * first has to be in hand before the conversion can start, so the download is
+ * ours. Reading the body in chunks rather than awaiting `blob()` is what keeps
+ * the progress bar honest on a large scan.
+ */
+async function download(
+  url: string,
+  onProgress?: (fraction: number) => void,
+): Promise<Blob> {
+  const response = await fetch(url, { credentials: 'same-origin' });
+  if (!response.ok) {
+    throw new Error(`the file could not be read (${response.status})`);
+  }
+
+  const total = Number(response.headers.get('content-length') ?? 0);
+  if (!response.body || !onProgress || total <= 0) {
+    return response.blob();
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    onProgress(Math.min(1, loaded / total));
+  }
+  return new Blob(chunks as BlobPart[], {
+    type: response.headers.get('content-type') ?? '',
+  });
+}
+
 export interface OpenOptions {
   url: string;
+  /**
+   * The document's extension. A format that is not PDF but can become one is
+   * converted here rather than given a viewer of its own — see `to-pdf.ts`.
+   */
+  ext?: string | null;
   /** Called with 0..1 while the file downloads. */
   onProgress?: (fraction: number) => void;
 }
 
-export async function openPdf({ url, onProgress }: OpenOptions): Promise<OpenDocument> {
+export async function openPdf({ url, ext, onProgress }: OpenOptions): Promise<OpenDocument> {
   const { getDocument, TextLayer } = await pdfjs();
 
+  // Converted documents arrive as bytes, PDFs as a URL that PDF.js fetches by
+  // range request — which is the whole reason a 300MB file opens on its first
+  // page rather than its last byte, and is worth keeping for the format that
+  // supports it.
+  let converted: string | null = null;
+  let source: { url: string } | { data: Uint8Array };
+  if (convertsToPdf(ext)) {
+    const result = await imageToPdf(await download(url, onProgress));
+    converted = result.note;
+    source = { data: result.bytes };
+  } else {
+    source = { url };
+  }
+
   const task = getDocument({
-    url,
+    ...source,
     // The session is a first-party cookie and the file route checks rights on
     // every request, so the worker's fetch has to carry credentials.
     withCredentials: true,
@@ -242,7 +304,7 @@ export async function openPdf({ url, onProgress }: OpenOptions): Promise<OpenDoc
     iccUrl: '/pdfjs/iccs/',
   });
 
-  if (onProgress) {
+  if (onProgress && !converted) {
     task.onProgress = ({ loaded, total }: { loaded: number; total: number }) => {
       onProgress(total > 0 ? Math.min(1, loaded / total) : 0);
     };
@@ -431,6 +493,7 @@ export async function openPdf({ url, onProgress }: OpenOptions): Promise<OpenDoc
 
   return {
     pageCount: doc.numPages,
+    converted,
 
     async size(index, options) {
       const vp = viewportFor(await page(index), options);

@@ -127,7 +127,9 @@ const rowSelect = {
 async function documentFor(principal: Principal, nodeId: string) {
   const node = await prisma.node.findUnique({
     where: { id: nodeId },
-    select: { id: true, cabinetId: true, name: true, kind: true },
+    // `ext` is here for the burn check: what a document *is* decides whether
+    // its marks can be written into it.
+    select: { id: true, cabinetId: true, name: true, kind: true, ext: true },
   });
   if (!node || node.kind !== 'document') notFound('Document');
   await assertVisible(principal, node);
@@ -407,6 +409,17 @@ export const annotationRouter = router({
     .mutation(async ({ ctx, input }) => {
       const node = await documentFor(ctx.principal, input.nodeId);
       assertCabinetRight(ctx.principal, node.cabinetId, 'Burn_Annotation');
+
+      // An image opens in the viewer as a PDF built in the browser, so it can
+      // be marked up — but the file on disk is still an image, and the burn
+      // writes into the stored file. The worker refuses this too; saying it
+      // here means the answer is immediate rather than a job that fails later.
+      if (node.ext?.toLowerCase() !== 'pdf') {
+        conflict(
+          `Only a PDF can be burned. This document is .${node.ext ?? '(none)'}, and its ` +
+            'annotations stay alongside it rather than being written into it.',
+        );
+      }
 
       const pending = await prisma.annotation.count({
         where: { nodeId: node.id, burnedAt: null },

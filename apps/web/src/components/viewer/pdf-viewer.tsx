@@ -56,6 +56,8 @@ import type { ViewerAnnotation } from './annotation-shapes';
 interface Props {
   nodeId: string;
   name: string;
+  /** Passed through so a non-PDF format can be converted before it opens. */
+  ext?: string | null;
   onClose: () => void;
 }
 
@@ -87,7 +89,7 @@ const TOOLS: Array<{
  * travel as XFDF and are stored beside the document, and nothing about the
  * viewer knows how permissions are decided.
  */
-export function PdfViewer({ nodeId, name, onClose }: Props) {
+export function PdfViewer({ nodeId, name, ext, onClose }: Props) {
   const [doc, setDoc] = useState<OpenDocument | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -193,6 +195,7 @@ export function PdfViewer({ nodeId, name, onClose }: Props) {
       try {
         const opened = await openPdf({
           url: `/file/${nodeId}`,
+          ext,
           onProgress: setProgress,
         });
         if (cancelled) {
@@ -218,7 +221,7 @@ export function PdfViewer({ nodeId, name, onClose }: Props) {
       cancelled = true;
       disposed?.destroy();
     };
-  }, [nodeId]);
+  }, [nodeId, ext]);
 
   // Track the scroll container's width so the fit modes have something to
   // fit to; ResizeObserver rather than a resize listener, because the panel
@@ -590,6 +593,21 @@ export function PdfViewer({ nodeId, name, onClose }: Props) {
         <strong className="max-w-[22ch] truncate text-sm" title={name}>
           {name}
         </strong>
+
+        {/* A converted document should not pass for the original file: the
+            marks you make here are kept beside it, not written into it. */}
+        {doc?.converted ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="secondary" className="cursor-default">
+                As PDF
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              {doc.converted}. Annotations are stored beside the file, not burned into it.
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
 
         <Separator orientation="vertical" className="h-5" />
 

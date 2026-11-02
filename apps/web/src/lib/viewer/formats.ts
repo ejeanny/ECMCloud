@@ -2,11 +2,18 @@
  * What the viewer will do with a document, decided from its extension.
  *
  * Dokmee answered this question by converting everything to PDF first
- * (`loadAsPDF`), which needed the conversion engine this rebuild does not
- * ship. The alternative is to meet each format where it is: the browser can
- * already draw images, play media and lay out text, and PDF and DOCX have
- * libraries that run client-side. Nothing here asks the server to convert
- * anything, so nothing here needs an engine.
+ * (`loadAsPDF`), which for Office formats needs the conversion engine this
+ * rebuild does not ship. So the answer here is split.
+ *
+ * A raster image takes Dokmee's route: `to-pdf.ts` makes it a one-page PDF in
+ * the browser, and it opens in the PDF viewer with everything that viewer has.
+ * It is still listed as `image` below, because that is what the file *is* —
+ * `convertsToPdf` decides where it opens, and the download, the icon and the
+ * name all still want to know it is an image.
+ *
+ * Everything else is met where it is: the browser can play media and lay out
+ * text, and DOCX has a library that runs client-side. Office formats are the
+ * honest remaining gap; see FORMAT_NOTES.
  */
 export type ViewerFormat =
   | 'pdf'
@@ -114,6 +121,10 @@ export const FORMAT_NOTES: Record<string, string> = {
   zip: 'Archive',
   rar: 'Archive',
   '7z': 'Archive',
-  tif: 'TIFF image',
-  tiff: 'TIFF image',
+  // The one image format no browser decodes, and the one most likely to be in
+  // an ECM: a multi-page fax or scan. Every other raster format now opens as a
+  // PDF (`to-pdf.ts`); this one needs a TIFF decoder before it can join them,
+  // and then it becomes a PDF of several pages rather than one.
+  tif: 'TIFF image — needs a decoder to open',
+  tiff: 'TIFF image — needs a decoder to open',
 };

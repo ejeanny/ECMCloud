@@ -440,6 +440,65 @@ scheduling, arrived at from the same constraint.
 
 ---
 
+## 8.4 One viewer for every format, because everything becomes a PDF
+
+The single most consequential decision in Dokmee's viewer is not in the viewer.
+It is `loadAsPDF: true` (§2): **nothing but PDF is ever displayed**. Word,
+Excel, PowerPoint, email and scans are all converted first, and what the user
+sees is always a PDF.
+
+Confirmed in the shipped bundles [observed]:
+
+| Where | What is there |
+|---|---|
+| `webviewer.min.js` | `loadAsPDF` among the 70 constructor options |
+| `webviewer-core.min.js` | `loadAsPDF` ×11, `officeToPDFBuffer`, `officeToPDFOptions`, `getOfficeWorker`/`officeWorker` ×13, `OfficeEditor` ×259, `ElementBuilder`, `PageSize`, `image/png`, `image/jpeg`, `image/tiff` |
+| `webApp\bin\` | `Spire.Doc`, `Spire.XLS`, `Spire.Presentation` beside `PDFNet.dll` |
+| `Dokmee.Ecm.Web.dll` | `ConvertFileToPDF`, `OfficeToPDF`, `OfficeToPDFOptions`, `ConvertCadToPdfAsync`, `ConvertPdfFileToOriginalFormat` |
+
+So conversion runs in **both** places: Office can be converted in the browser
+by the WASM office worker (`officeToPDFBuffer`), and the server has Spire for
+the same job plus CAD through `pdftronCADConvert.dll`. An image becomes a page
+through PDFNet's `ElementBuilder`/`PageSize` — the same content-building API
+the stamping subsystem uses (§5).
+
+**Why it is worth copying.** Annotations, the text layer, search, thumbnails
+and page navigation are all defined over PDF pages. A format that opens in a
+viewer of its own gets none of them — which is why an image shown as an `<img>`
+is an image nobody can mark up, however good the image renderer is. Converting
+is not about display. It is about making one set of features apply to
+everything.
+
+**What this rebuild does.** `apps/web/src/lib/viewer/to-pdf.ts` converts raster
+images to a one-page PDF in the browser, and `openPdf` takes bytes instead of a
+URL when it does. A JPEG is embedded unchanged — JPEG *is* a PDF image filter
+(`DCTDecode`), so a scan costs no quality and no re-encoding time; everything
+else goes through a canvas. Page size comes from the image's declared
+resolution (JFIF density, PNG `pHYs`) and falls back to 96dpi, so a 300dpi scan
+opens as a letter-sized page rather than a 26-inch one.
+
+Three gaps, stated plainly:
+
+- **TIFF** — the one image format no browser decodes, and the one most likely
+  to be in an ECM: multi-page faxes and scans. It needs a decoder before it can
+  join the rest, and then it becomes a PDF of several pages. A dependency
+  decision, not a design one.
+- **Office** — needs a real layout engine. Dokmee buys one twice over (Spire
+  server-side, Apryse's office worker client-side). The honest open option is
+  LibreOffice headless on the server, as §7 says; `.docx` keeps its
+  client-side HTML renderer until then.
+- **No text layer on a converted image** — an image has no text, so search and
+  the text markups do not apply to it; ink, box and note do. Dokmee closes this
+  with OCR (`AddOCRService`), which this rebuild lists as an explicit stub.
+  OCR with word positions would make a scan searchable and highlightable, and
+  that is the one addition that would change what the viewer can do.
+
+Burning stays PDF-only. The viewer builds the converted PDF in the browser; the
+file on disk is still an image, so marks on it are kept beside it rather than
+written into it, and both the worker and `annotation.queueBurn` say so.
+
+---
+
 ## 9. Unknowns
 
 - The 12 `disabledElements` entries behind string-table indices (§2).
