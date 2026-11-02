@@ -1,0 +1,39 @@
+{
+  "name": "@ecm/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./router": {
+      "types": "./dist/routers/index.d.ts",
+      "default": "./dist/routers/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch --experimental-strip-types src/server.ts",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false"
+  },
+  "dependencies": {
+    "@ecm/db": "*",
+    "@ecm/domain": "*",
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^10.0.2",
+    "@fastify/multipart": "^9.0.3",
+    "@trpc/server": "^11.0.0",
+    "argon2": "^0.41.1",
+    "fastify": "^5.2.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "~5.9.3"
+  }
+}

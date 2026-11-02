@@ -1,0 +1,892 @@
+// Data model for the ECM rebuild.
+//
+// Reconstructed from Dokmee ECM 7.8.3.27's master database (`Dokmee_ECM`) and
+// per-cabinet databases (`Dokmee_ECM_<cabinetGuid>`); see
+// REVERSE-ENGINEERING.md §4. Each model notes the Dokmee table it stands in
+// for. Two deliberate departures (§6):
+//
+//   1. One database with a `cabinetId` discriminator, instead of a database
+//      created per cabinet at runtime.
+//   2. Index-field values as rows in `NodeIndexValue`, instead of columns
+//      added to `Dms_FsNodeIndex` by ALTER TABLE.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- identity
+
+/// Dokmee: Dms_Users
+model User {
+  id          String  @id @default(uuid()) @db.Uuid
+  userName    String  @unique
+  firstName   String  @default("")
+  lastName    String  @default("")
+  email       String?
+  description String?
+
+  /// Opaque PHC string (argon2id). Dokmee stored Password+Salt+WorkFactor
+  /// as separate varbinary/int columns; one PHC string carries all three.
+  passwordHash   String?
+  isTempPassword Boolean   @default(true)
+  passwordChanged DateTime?
+
+  status         String    @default("active") /// UserStatus
+  userType       String    @default("local") /// UserType
+  expirationDate DateTime?
+  languageCode   String?   @db.VarChar(8)
+
+  /// Dokmee: ADGuid / ADProfileId
+  externalId        String?
+  externalDirectory String?
+
+  created  DateTime  @default(now())
+  modified DateTime  @updatedAt
+  deleted  DateTime?
+
+  roles            UserRole[]
+  deniedRights     UserDeniedRight[]
+  deniedCabinets   UserDeniedCabinet[]
+  sessions         Session[]
+  apiTokens        ApiToken[]
+  favorites        Favorite[]
+  recents          Recent[]
+  notes            FileNote[]
+  versions         NodeVersion[]
+  checkouts        Checkout[]
+  auditRecords     AuditRecord[]
+  notifications    Notification[]  @relation("notificationOwner")
+  triggered        Notification[]  @relation("notificationTrigger")
+  todos            WorkflowTodo[]
+  pinnedCabinets   PinnedCabinet[]
+  settings         UserSetting?
+  signatures       Signature[]
+  workflowAssignees WorkflowTaskAssignee[]
+
+  @@index([status])
+  @@index([externalId])
+  @@map("user")
+}
+
+/// Dokmee: Dms_Roles
+model Role {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
+  description String?
+  /// Set for the four built-ins; null for roles an administrator created.
+  builtin     String?
+  /// Administrators bypass right checks entirely (see access.ts).
+  isAdministrator Boolean @default(false)
+
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  users            UserRole[]
+  systemRights     RoleSystemRight[]
+  cabinetGrants    CabinetRoleRight[]
+  cabinetBindings  CabinetRole[]
+  viewRestrictions ViewRestriction[]
+  workflowAssignees WorkflowTaskAssignee[]
+
+  @@map("role")
+}
+
+/// Dokmee: Dms_Users_Roles
+model UserRole {
+  userId String @db.Uuid
+  roleId String @db.Uuid
+  created DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_role")
+}
+
+/// Dokmee: Dms_Roles_System_Rights
+model RoleSystemRight {
+  roleId String @db.Uuid
+  right  String
+  created DateTime @default(now())
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, right])
+  @@map("role_system_right")
+}
+
+/// Dokmee: Dms_Users_Denied_SystemRights + Dms_Users_Denied_Rights.
+/// `cabinetId` null means the deny is system-wide.
+model UserDeniedRight {
+  id        String  @id @default(uuid()) @db.Uuid
+  userId    String  @db.Uuid
+  cabinetId String? @db.Uuid
+  right     String
+  created   DateTime @default(now())
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cabinet FileCabinet? @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cabinetId, right])
+  @@map("user_denied_right")
+}
+
+/// Dokmee: Dms_User_Denied_Fc
+model UserDeniedCabinet {
+  userId    String @db.Uuid
+  cabinetId String @db.Uuid
+  created   DateTime @default(now())
+
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cabinet FileCabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+
+  @@id([userId, cabinetId])
+  @@map("user_denied_cabinet")
+}
+
+/// Dokmee: Dms_Sessions. Server-side sessions, not stateless tokens — Dokmee
+/// keeps a row per browser window (WindowGuid) and we keep that.
+model Session {
+  id           String   @id @default(uuid()) @db.Uuid
+  tokenHash    String   @unique
+  userId       String   @db.Uuid
+  deviceId     String   @default("")
+  windowId     String   @default("")
+  userAgent    String?
+  ipAddress    String?
+  issuedAt     DateTime @default(now())
+  expiresAt    DateTime
+  lastSeenAt   DateTime @default(now())
+  revokedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("session")
+}
+
+/// Replaces Dokmee's second per-user credential (ApplicationPassword) with a
+/// scoped, revocable token (§6).
+model ApiToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  name       String
+  tokenHash  String    @unique
+  scopes     String[]
+  created    DateTime  @default(now())
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("api_token")
+}
+
+// ---------------------------------------------------------------- cabinets
+
+/// Dokmee: Dms_FileCabinets
+model FileCabinet {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
+  description String?
+
+  status                  String  @default("active") /// CabinetStatus
+  allowDuplicateFileNames Boolean @default(false)
+  allowCustomFolder       Boolean @default(true)
+  enableFullTextIndex     Boolean @default(true)
+  /// Dokmee: RepoEncrypted — per-file envelope encryption in the repository.
+  repoEncrypted           Boolean @default(false)
+  folderNameDisplayLimit  Int     @default(70)
+  /// Dokmee: PrimaryRepo / SecondaryRepo.
+  primaryRepo             String?
+  secondaryRepo           String?
+  aiDescription           String?
+  isAutoIndex             Boolean @default(false)
+  isRpa                   Boolean @default(false)
+
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  indexFields      IndexField[]
+  nodes            Node[]
+  roles            CabinetRole[]
+  roleRights       CabinetRoleRight[]
+  viewRestrictions ViewRestriction[]
+  deniedUsers      UserDeniedCabinet[]
+  deniedRights     UserDeniedRight[]
+  pinnedBy         PinnedCabinet[]
+  auditRecords     AuditRecord[]
+  retentionJobs    RetentionJob[]
+  workflows        Workflow[]
+  notifications    Notification[]
+  jobs             Job[]
+  stamps           Stamp[]
+  uploads          Upload[]
+
+  @@map("file_cabinet")
+}
+
+/// Dokmee: Dms_Fc_Roles_Profiles — binds a role into a cabinet, with the
+/// read-only and file-access-denied flags that row carries.
+model CabinetRole {
+  id                 String  @id @default(uuid()) @db.Uuid
+  cabinetId          String  @db.Uuid
+  roleId             String  @db.Uuid
+  isReadOnly         Boolean @default(false)
+  isFileAccessDenied Boolean @default(false)
+  created            DateTime @default(now())
+  modified           DateTime @updatedAt
+
+  cabinet FileCabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  role    Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([cabinetId, roleId])
+  @@map("cabinet_role")
+}
+
+/// Dokmee: Dms_Roles_Rights (per-cabinet database)
+model CabinetRoleRight {
+  cabinetId String @db.Uuid
+  roleId    String @db.Uuid
+  right     String
+  created   DateTime @default(now())
+
+  cabinet FileCabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  role    Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([cabinetId, roleId, right])
+  @@map("cabinet_role_right")
+}
+
+/// Dokmee: Dms_View_Restrictions. The predicate was an opaque varbinary blob
+/// there; here it is a declared JSON predicate (domain/access.ts).
+model ViewRestriction {
+  id        String   @id @default(uuid()) @db.Uuid
+  cabinetId String   @db.Uuid
+  roleId    String   @db.Uuid
+  combine   String   @default("and")
+  clauses   Json
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+
+  cabinet FileCabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  role    Role        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([cabinetId, roleId])
+  @@map("view_restriction")
+}
+
+/// Dokmee: Dms_UsersPinnedCabinets
+model PinnedCabinet {
+  userId      String  @db.Uuid
+  cabinetId   String  @db.Uuid
+  isDefault   Boolean @default(false)
+  created     DateTime @default(now())
+
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cabinet FileCabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+
+  @@id([userId, cabinetId])
+  @@map("pinned_cabinet")
+}
+
+// ------------------------------------------------------------ index fields
+
+/// Dokmee: Dms_CabinetIndexFields
+model IndexField {
+  id          String  @id @default(uuid()) @db.Uuid
+  cabinetId   String  @db.Uuid
+  label       String
+  description String?
+  type        String /// FieldType
+  isDefault   Boolean @default(false)
+  isRequired  Boolean @default(false)
+  isRestricted Boolean @default(false)
+  isLocked    Boolean @default(false)
+  sort        Int     @default(0)
+  /// >0 means this field is a folder level in the cabinet's tree template.
+  folderLevel Int     @default(0)
+  /// Dokmee: Auto_Number_Index_Fields — next value for `autoNumber` fields.
+  autoNumberNext Int  @default(1)
+
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  cabinet      FileCabinet       @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  selectValues SelectListValue[]
+  values       NodeIndexValue[]
+
+  @@unique([cabinetId, label])
+  @@index([cabinetId, sort])
+  @@map("index_field")
+}
+
+/// Dokmee: Dms_SelectListValues
+model SelectListValue {
+  id      String @id @default(uuid()) @db.Uuid
+  fieldId String @db.Uuid
+  value   String
+  sort    Int    @default(0)
+
+  field IndexField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldId, value])
+  @@map("select_list_value")
+}
+
+/// Dokmee: Dms_GlobalIndexFields — a cross-cabinet field template.
+model GlobalIndexField {
+  id           String  @id @default(uuid()) @db.Uuid
+  name         String  @unique
+  description  String?
+  type         String
+  isAutoSorted Boolean @default(false)
+  isForcedMatch Boolean @default(false)
+  created      DateTime @default(now())
+  modified     DateTime @updatedAt
+
+  @@map("global_index_field")
+}
+
+// -------------------------------------------------------------------- tree
+
+/// Dokmee: Dms_FsNodes. Folders, documents and links in one self-referential
+/// table, soft-deleted into the recycle bin rather than removed.
+model Node {
+  id        String  @id @default(uuid()) @db.Uuid
+  cabinetId String  @db.Uuid
+  parentId  String? @db.Uuid
+  kind      String /// NodeKind
+
+  name String @db.VarChar(1500)
+  ext  String? @db.VarChar(100)
+
+  /// Materialised ancestor path (`/id/id/`), so a subtree is one index scan.
+  /// Dokmee walked TargetGuid recursively instead.
+  path String @default("/")
+
+  byteLength BigInt?
+  pages      Int?
+  sha256     String? @db.VarChar(64)
+
+  /// Which blob in the repository holds the *current* content. A check-in or
+  /// a revert repoints this; the superseded blob stays, referenced by the
+  /// NodeVersion row that now owns it. A copy shares its source's blobId, so
+  /// the recycler only deletes a blob nothing else references.
+  blobId String? @db.Uuid
+
+  /// Dokmee: FullText, with TextExtractionDate.
+  fullText           String?
+  textExtractedAt    DateTime?
+
+  /// Dokmee: CryptoKey / CryptoVector — per-file envelope, stored wrapped.
+  encryptedKey String?
+  encryptionIv String?
+
+  /// Dokmee: email-ingest columns SentFrom/SentTo/Cc/EmailSubject/SentOn.
+  emailFrom    String?
+  emailTo      String?
+  emailCc      String?
+  emailSubject String?
+  emailSentOn  DateTime?
+
+  isCheckedOut Boolean   @default(false)
+  checkedOutAt DateTime?
+
+  /// Recycle bin. Dokmee: Bin + Deleted + Restored.
+  inRecycleBin Boolean   @default(false)
+  deletedAt    DateTime?
+  restoredAt   DateTime?
+
+  hasDigitalSignature Boolean @default(false)
+  isSigned            Boolean @default(false)
+
+  indexModified DateTime?
+  created       DateTime  @default(now())
+  modified      DateTime  @updatedAt
+  createdById   String?   @db.Uuid
+
+  cabinet     FileCabinet      @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  parent      Node?            @relation("nodeTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Node[]           @relation("nodeTree")
+  indexValues NodeIndexValue[]
+  versions    NodeVersion[]
+  checkout    Checkout?
+  notes       FileNote[]
+  favorites   Favorite[]
+  recents     Recent[]
+  auditRecords AuditRecord[]
+  relationsFrom NodeRelation[] @relation("relationFrom")
+  relationsTo   NodeRelation[] @relation("relationTo")
+  workflowInstances WorkflowInstance[]
+  jobs          Job[]
+
+  @@index([cabinetId, parentId, inRecycleBin])
+  @@index([cabinetId, inRecycleBin, modified])
+  @@index([path])
+  @@index([sha256])
+  @@index([blobId])
+  @@map("node")
+}
+
+/// Replaces Dokmee's dynamic-DDL `Dms_FsNodeIndex` (§6). One row per
+/// (node, field); the value lands in the slot its FieldType maps to, so
+/// ordering and range queries stay typed.
+model NodeIndexValue {
+  nodeId  String @db.Uuid
+  fieldId String @db.Uuid
+
+  textValue    String?
+  numberValue  Decimal? @db.Decimal(38, 10)
+  dateValue    DateTime?
+  booleanValue Boolean?
+
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  node  Node       @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  field IndexField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@id([nodeId, fieldId])
+  @@index([fieldId, textValue])
+  @@index([fieldId, numberValue])
+  @@index([fieldId, dateValue])
+  @@map("node_index_value")
+}
+
+/// Dokmee: Dms_FsVersions — major.minor with per-version extracted text.
+model NodeVersion {
+  id           String  @id @default(uuid()) @db.Uuid
+  nodeId       String  @db.Uuid
+  majorVersion Int
+  minorVersion Int
+  name         String  @db.VarChar(1500)
+  ext          String? @db.VarChar(100)
+  byteLength   BigInt?
+  pages        Int?
+  sha256       String? @db.VarChar(64)
+  /// The blob this version's bytes live in — without it a version row is
+  /// metadata only and a revert could not restore content.
+  blobId       String? @db.Uuid
+  /// The envelope for that blob; a per-file key cannot be re-derived.
+  encryptedKey String?
+  encryptionIv String?
+  fullText     String?
+  textExtractedAt DateTime?
+  comment      String?
+  createdById  String  @db.Uuid
+  created      DateTime @default(now())
+
+  node      Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@unique([nodeId, majorVersion, minorVersion])
+  @@index([nodeId, created])
+  @@index([blobId])
+  @@map("node_version")
+}
+
+/// Dokmee: Dms_FsCheckedOut
+model Checkout {
+  id        String   @id @default(uuid()) @db.Uuid
+  nodeId    String   @unique @db.Uuid
+  userId    String   @db.Uuid
+  comment   String?
+  isLiveCollab Boolean @default(false)
+  created   DateTime @default(now())
+
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("checkout")
+}
+
+/// Dokmee: Dms_FileNotes
+model FileNote {
+  id       String   @id @default(uuid()) @db.Uuid
+  nodeId   String   @db.Uuid
+  userId   String   @db.Uuid
+  notes    String
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([nodeId, created])
+  @@map("file_note")
+}
+
+/// Dokmee: FileRelationships
+model NodeRelation {
+  id       String @id @default(uuid()) @db.Uuid
+  fromId   String @db.Uuid
+  toId     String @db.Uuid
+  kind     String @default("related")
+  created  DateTime @default(now())
+
+  from Node @relation("relationFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to   Node @relation("relationTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, kind])
+  @@map("node_relation")
+}
+
+/// Dokmee: User_Favorite_Files
+model Favorite {
+  userId  String   @db.Uuid
+  nodeId  String   @db.Uuid
+  created DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, nodeId])
+  @@map("favorite")
+}
+
+/// Dokmee: User_Recent_Files
+model Recent {
+  userId   String   @db.Uuid
+  nodeId   String   @db.Uuid
+  viewedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, nodeId])
+  @@index([userId, viewedAt])
+  @@map("recent")
+}
+
+/// Chunked upload staging. Dokmee: UploadSegmentAsync / SyncSegments, with
+/// the partially-extracted-file cleanup that RemovePartiallyExtractedFile did.
+model Upload {
+  id           String   @id @default(uuid()) @db.Uuid
+  cabinetId    String   @db.Uuid
+  parentId     String?  @db.Uuid
+  userId       String   @db.Uuid
+  fileName     String   @db.VarChar(1500)
+  byteLength   BigInt
+  segmentCount Int
+  received     Int      @default(0)
+  expectedSha256 String? @db.VarChar(64)
+  state        String   @default("open") /// open | complete | aborted
+  created      DateTime @default(now())
+  modified     DateTime @updatedAt
+
+  cabinet FileCabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+
+  @@index([cabinetId, state])
+  @@map("upload")
+}
+
+// ------------------------------------------------------------------- audit
+
+/// Dokmee: Dms_System_Audit_Records plus one table per cabinet. Unified here
+/// with `cabinetId` nullable for system-level events (§6).
+model AuditRecord {
+  id        String   @id @default(uuid()) @db.Uuid
+  at        DateTime @default(now())
+  action    String /// AuditAction
+  userId    String?  @db.Uuid
+  userName  String
+  cabinetId String?  @db.Uuid
+  nodeId    String?  @db.Uuid
+  nodeName  String?
+  ipAddress String?
+  detail    Json?
+
+  user    User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cabinet FileCabinet? @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  node    Node?        @relation(fields: [nodeId], references: [id], onDelete: SetNull)
+
+  @@index([at])
+  @@index([cabinetId, at])
+  @@index([userId, at])
+  @@index([nodeId, at])
+  @@map("audit_record")
+}
+
+// --------------------------------------------------------------- retention
+
+/// Dokmee: Retention_Job
+model RetentionJob {
+  id        String  @id @default(uuid()) @db.Uuid
+  cabinetId String  @db.Uuid
+  name      String
+  isEnabled Boolean @default(false)
+  expirationAction String /// RetentionAction
+  years  Int @default(0)
+  months Int @default(0)
+  days   Int @default(0)
+  /// Index field the retention clock counts from; null means node.created.
+  retentionDateFieldId String? @db.Uuid
+  combine  String  @default("and")
+  clauses  Json    @default("[]")
+  lastRunAt DateTime?
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  cabinet FileCabinet @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+
+  @@index([cabinetId, isEnabled])
+  @@map("retention_job")
+}
+
+// ---------------------------------------------------------------- workflow
+
+/// Dokmee: Workflows (per cabinet) + Workflow_Versions
+model Workflow {
+  id          String  @id @default(uuid()) @db.Uuid
+  cabinetId   String  @db.Uuid
+  name        String
+  description String?
+  inError     Boolean @default(false)
+  isLocked    Boolean @default(false)
+  lockedById  String? @db.Uuid
+  lockedAt    DateTime?
+  publishedVersionId String? @db.Uuid
+  created     DateTime @default(now())
+  modified    DateTime @updatedAt
+
+  cabinet   FileCabinet       @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  versions  WorkflowVersion[]
+  instances WorkflowInstance[]
+
+  @@unique([cabinetId, name])
+  @@map("workflow")
+}
+
+model WorkflowVersion {
+  id         String  @id @default(uuid()) @db.Uuid
+  workflowId String  @db.Uuid
+  revision   Int
+  published  Boolean @default(false)
+  /// Dokmee: Workflow_Triggers + Workflow_Trigger_Criteria.
+  onNewDocument   Boolean @default(false)
+  onIndexChanged  Boolean @default(false)
+  triggerCombine  String  @default("and")
+  triggerClauses  Json    @default("[]")
+  created    DateTime @default(now())
+
+  workflow  Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  tasks     WorkflowTask[]
+  routings  WorkflowRouting[]
+  instances WorkflowInstance[]
+
+  @@unique([workflowId, revision])
+  @@map("workflow_version")
+}
+
+/// Dokmee: Workflow_Tasks, with the per-type action tables
+/// (Workflow_Action_Email/_Stamp/_Signature/_Clone/_Update_Index/_DocuSign)
+/// folded into `config`.
+model WorkflowTask {
+  id        String  @id @default(uuid()) @db.Uuid
+  versionId String  @db.Uuid
+  /// Stable key used by routings, so a redesign does not rewrite edges.
+  key       String
+  name      String
+  type      String /// WorkflowTaskType
+  allowSpecificReviewer Boolean @default(false)
+  config    Json    @default("{}")
+  created   DateTime @default(now())
+
+  version   WorkflowVersion        @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  assignees WorkflowTaskAssignee[]
+  todos     WorkflowTodo[]
+
+  @@unique([versionId, key])
+  @@map("workflow_task")
+}
+
+/// Dokmee: Workflow_Task_JobFunction / Workflow_JobFunctions
+model WorkflowTaskAssignee {
+  id     String  @id @default(uuid()) @db.Uuid
+  taskId String  @db.Uuid
+  roleId String? @db.Uuid
+  userId String? @db.Uuid
+
+  task WorkflowTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  role Role?        @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, roleId, userId])
+  @@map("workflow_task_assignee")
+}
+
+/// Dokmee: Workflow_Routings + Workflow_Decision_Rules
+model WorkflowRouting {
+  id          String  @id @default(uuid()) @db.Uuid
+  versionId   String  @db.Uuid
+  fromTaskKey String
+  /// null terminates the flow.
+  toTaskKey   String?
+  type        String  @default("always") /// RoutingType
+  /// Set when `type` is onDecision.
+  decision    String?
+  order       Int     @default(0)
+
+  version WorkflowVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId, fromTaskKey])
+  @@map("workflow_routing")
+}
+
+/// Dokmee: WorkflowActiveInstances (held in the *master* DB there).
+model WorkflowInstance {
+  id         String  @id @default(uuid()) @db.Uuid
+  workflowId String  @db.Uuid
+  versionId  String  @db.Uuid
+  nodeId     String  @db.Uuid
+  state      String  @default("running") /// WorkflowInstanceState
+  currentTaskKey String?
+  error      String?
+  started    DateTime @default(now())
+  finished   DateTime?
+
+  workflow Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  version  WorkflowVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  node     Node            @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  todos    WorkflowTodo[]
+
+  @@index([state])
+  @@index([nodeId])
+  @@map("workflow_instance")
+}
+
+/// Dokmee: Workflow_Instance_Todo / Workflow_Task_Todo
+model WorkflowTodo {
+  id         String  @id @default(uuid()) @db.Uuid
+  instanceId String  @db.Uuid
+  taskId     String  @db.Uuid
+  assignedToId String? @db.Uuid
+  state      String  @default("open") /// open | done | skipped
+  decision   String?
+  comment    String?
+  created    DateTime @default(now())
+  completed  DateTime?
+
+  instance   WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  task       WorkflowTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  assignedTo User?            @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([assignedToId, state])
+  @@index([instanceId])
+  @@map("workflow_todo")
+}
+
+// ----------------------------------------------------- marks & signatures
+
+/// Dokmee: Stamp / StandardStamp / CabinetStampController
+model Stamp {
+  id        String  @id @default(uuid()) @db.Uuid
+  cabinetId String? @db.Uuid
+  name      String
+  kind      String  @default("text") /// text | image | bates
+  text      String?
+  imagePath String?
+  opacity   Int     @default(100)
+  isStandard Boolean @default(false)
+  created   DateTime @default(now())
+  modified  DateTime @updatedAt
+
+  cabinet FileCabinet? @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+
+  @@map("stamp")
+}
+
+/// Dokmee: Signature / ESignature / UserSignatureController
+model Signature {
+  id       String   @id @default(uuid()) @db.Uuid
+  userId   String   @db.Uuid
+  name     String
+  imagePath String
+  created  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("signature")
+}
+
+// ------------------------------------------- notifications, jobs, settings
+
+/// Dokmee: User_Notification
+model Notification {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  type         String /// NotificationType
+  action       String
+  message      String
+  entityId     String?  @db.Uuid
+  cabinetId    String?  @db.Uuid
+  triggeredById String? @db.Uuid
+  isViewed     Boolean  @default(false)
+  snoozeUntil  DateTime?
+  created      DateTime @default(now())
+
+  user        User         @relation("notificationOwner", fields: [userId], references: [id], onDelete: Cascade)
+  triggeredBy User?        @relation("notificationTrigger", fields: [triggeredById], references: [id], onDelete: SetNull)
+  cabinet     FileCabinet? @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isViewed, created])
+  @@map("notification")
+}
+
+/// One table for every queue Dokmee gave a dedicated service and table
+/// (OCR, text extraction, auto-index, data extraction/export, email,
+/// notification, retention, recycle, AI summary, RPA) — §2, §6.
+model Job {
+  id        String   @id @default(uuid()) @db.Uuid
+  kind      String /// JobKind
+  state     String   @default("queued") /// JobState
+  priority  Int      @default(0)
+  cabinetId String?  @db.Uuid
+  nodeId    String?  @db.Uuid
+  payload   Json     @default("{}")
+  attempts  Int      @default(0)
+  lastError String?
+  runAfter  DateTime @default(now())
+  startedAt DateTime?
+  finishedAt DateTime?
+  created   DateTime @default(now())
+
+  cabinet FileCabinet? @relation(fields: [cabinetId], references: [id], onDelete: Cascade)
+  node    Node?        @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@index([state, kind, runAfter])
+  @@index([nodeId])
+  @@map("job")
+}
+
+/// Dokmee: User_Settings
+model UserSetting {
+  userId   String @id @db.Uuid
+  settings Json   @default("{}")
+  modified DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_setting")
+}
+
+/// Dokmee: SystemSettings / System_Configurations / Dms_ThemeSettings
+model SystemSetting {
+  key      String   @id
+  value    Json
+  modified DateTime @updatedAt
+
+  @@map("system_setting")
+}

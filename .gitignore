@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+.env
+.env.local
+repository/
+
+# Prisma's generated client — recreated by `npm run db:generate`.
+packages/db/generated/

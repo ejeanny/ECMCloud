@@ -1,0 +1,31 @@
+{
+  "name": "@ecm/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "generate": "prisma generate",
+    "push": "prisma db push",
+    "migrate": "prisma migrate dev",
+    "seed": "node --env-file-if-exists=../../apps/api/.env --experimental-strip-types src/seed.ts",
+    "build": "prisma generate && tsc -b",
+    "typecheck": "tsc -b --noEmit false"
+  },
+  "dependencies": {
+    "@ecm/domain": "*",
+    "@prisma/client": "^6.1.0",
+    "argon2": "^0.41.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.1.0",
+    "typescript": "~5.9.3"
+  }
+}
