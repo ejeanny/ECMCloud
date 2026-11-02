@@ -12,13 +12,14 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "generate": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs generate",
-    "push": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs db push",
-    "migrate": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs migrate dev",
-    "seed": "node --env-file-if-exists=../../apps/api/.env --experimental-strip-types src/seed.ts",
     "build": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs generate && tsc -b",
-    "typecheck": "tsc -b --noEmit false",
-    "studio": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs studio"
+    "generate": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs generate",
+    "migrate": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs migrate dev",
+    "push": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs db push",
+    "preseed": "tsc -b",
+    "seed": "node --env-file-if-exists=../../apps/api/.env --experimental-strip-types src/seed.ts",
+    "studio": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs studio",
+    "typecheck": "tsc -b --noEmit false"
   },
   "dependencies": {
     "@ecm/domain": "*",
