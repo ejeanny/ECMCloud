@@ -86,6 +86,23 @@ npm run dev:web
 The web app proxies `/trpc`, `/file` and `/upload` to the API, so the browser
 stays on one origin and the session cookie is first-party.
 
+### Tests
+
+```bash
+ECM_ADMIN_PASSWORD='<the one you seeded with>' npm test
+```
+
+227 checks in eight suites, against a **running** API — they sign in, upload
+real bytes, wait for the worker and read the result back over HTTP. That is
+deliberate: nearly every bug they have caught lived in a seam (a job that was
+never enqueued, a predicate applied on one route and not another, a column
+written but never read), not inside a function a unit test would have reached.
+
+Name a suite to run one: `npm test restrictions`. They write into the first
+cabinet `cabinet.list` returns and leave their documents behind, so point them
+at a development database. `tests/fixtures/invoice.pdf` is generated on first
+run rather than committed, so the PDF under test is never a stale blob.
+
 ## What is implemented
 
 **Cabinets** — the tenancy and configuration boundary, each with its own index

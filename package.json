@@ -18,7 +18,8 @@
     "dev:web": "npm run dev -w @ecm/web",
     "db:generate": "npm run generate -w @ecm/db",
     "db:push": "npm run push -w @ecm/db",
-    "db:seed": "npm run seed -w @ecm/db"
+    "db:seed": "npm run seed -w @ecm/db",
+    "test": "node tests/run.mjs"
   },
   "devDependencies": {
     "typescript": "~5.9.3"
