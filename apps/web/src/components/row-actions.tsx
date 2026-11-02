@@ -6,6 +6,7 @@ import { Download, ExternalLink, Lock, LockOpen, Undo2, Upload } from 'lucide-re
 
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { viewerHrefFor } from '@/lib/viewer/formats';
 import { CheckInDialog } from './check-in-dialog';
 import { trpc } from '@/lib/trpc';
 
@@ -28,9 +29,15 @@ interface Props {
   onChanged: () => void;
 }
 
-/** Where a document opens: the viewer reads PDF, everything else is its bytes. */
+/**
+ * Where a document opens: the viewer, whatever it is.
+ *
+ * It used to be the viewer for PDF and a raw `/file/` tab for everything else,
+ * which meant most of a cabinet opened as a download prompt. The viewer now
+ * picks a renderer per format, and says so plainly for the few it cannot draw.
+ */
 export function openHrefFor(node: { id: string; ext: string | null }): string {
-  return node.ext?.toLowerCase() === 'pdf' ? `/v/${node.id}` : `/file/${node.id}`;
+  return viewerHrefFor(node);
 }
 
 /**
@@ -56,7 +63,6 @@ export function RowActions({ node, me, readOnly, onChanged }: Props) {
 
   const mine = node.isCheckedOut && node.checkedOutById !== null && node.checkedOutById === me;
   const theirs = node.isCheckedOut && !mine;
-  const isPdf = node.ext?.toLowerCase() === 'pdf';
 
   // Clicks inside the row must not also select it; each one is its own action.
   const act = (fn: () => void) => (event: React.MouseEvent) => {
@@ -75,15 +81,12 @@ export function RowActions({ node, me, readOnly, onChanged }: Props) {
             variant="ghost"
             size="icon-xs"
             aria-label="Open"
-            onClick={act(() => {
-              if (isPdf) router.push(`/v/${node.id}`);
-              else window.open(`/file/${node.id}`, '_blank', 'noopener');
-            })}
+            onClick={act(() => router.push(viewerHrefFor(node)))}
           >
             <ExternalLink />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{isPdf ? 'Open in the viewer' : 'Open the file'}</TooltipContent>
+        <TooltipContent>Open in the viewer</TooltipContent>
       </Tooltip>
 
       <Tooltip>

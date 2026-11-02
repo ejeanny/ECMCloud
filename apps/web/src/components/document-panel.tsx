@@ -29,6 +29,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { EmptyState, ErrorState, InlineError } from '@/components/states';
 import { formatBytes, formatDate, formatIndexValue } from '@/lib/format';
+import { viewerHrefFor } from '@/lib/viewer/formats';
 import { CheckInDialog } from './check-in-dialog';
 import { trpc } from '@/lib/trpc';
 
@@ -106,26 +107,14 @@ export function DocumentPanel({ nodeId, onChanged }: Props) {
 
         {node.kind === 'document' ? (
           <div className="flex flex-wrap gap-1.5 pt-1">
-            {/* The viewer reads PDF. Dokmee converted everything to PDF first
-                (`loadAsPDF`), which needs the conversion engine this rebuild
-                does not ship — so anything else opens as its own bytes and lets
-                the browser decide, rather than handing PDF.js a file it cannot
-                parse. */}
-            {node.ext?.toLowerCase() === 'pdf' ? (
-              <Button asChild size="xs">
-                <Link href={`/v/${node.id}`}>
-                  <Eye />
-                  View &amp; annotate
-                </Link>
-              </Button>
-            ) : (
-              <Button asChild size="xs" variant="outline">
-                <a href={`/file/${node.id}`} target="_blank" rel="noreferrer">
-                  <Eye />
-                  View
-                </a>
-              </Button>
-            )}
+            {/* Every format opens in the viewer; only PDF can be annotated,
+                because the annotations are XFDF stored against the page. */}
+            <Button asChild size="xs">
+              <Link href={viewerHrefFor(node)}>
+                <Eye />
+                {node.ext?.toLowerCase() === 'pdf' ? 'View & annotate' : 'View'}
+              </Link>
+            </Button>
             <Button asChild size="xs" variant="outline">
               <a href={`/file/${node.id}/download`}>
                 <Download />

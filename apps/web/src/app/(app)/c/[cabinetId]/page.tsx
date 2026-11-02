@@ -147,10 +147,8 @@ export default function ExplorerPage() {
         setSelected([]);
         setCursor(0);
         setPage(0);
-      } else if (node.ext?.toLowerCase() === 'pdf') {
-        router.push(`/v/${node.id}`);
       } else {
-        window.open(`/file/${node.id}`, '_blank', 'noopener');
+        router.push(openHrefFor(node));
       }
     },
     [router],
@@ -502,9 +500,6 @@ export default function ExplorerPage() {
                             <Link
                               className="hover:text-primary flex min-w-0 flex-1 items-center gap-2 hover:underline"
                               href={openHrefFor(node)}
-                              target={
-                                node.ext?.toLowerCase() === 'pdf' ? undefined : '_blank'
-                              }
                               onClick={(e) => e.stopPropagation()}
                             >
                               <FileIcon className="text-muted-foreground size-4 shrink-0" />

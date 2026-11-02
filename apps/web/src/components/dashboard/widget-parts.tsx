@@ -69,7 +69,6 @@ export function DocumentLink({
   return (
     <Link
       href={openHrefFor(node)}
-      target={node.ext?.toLowerCase() === 'pdf' ? undefined : '_blank'}
       title={node.name}
       className="hover:text-primary flex min-w-0 items-center gap-2 text-sm hover:underline"
     >

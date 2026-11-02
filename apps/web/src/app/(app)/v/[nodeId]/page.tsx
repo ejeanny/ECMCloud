@@ -47,6 +47,8 @@ export default function ViewerPage() {
       <DocumentViewer
         nodeId={nodeId}
         name={node.name}
+        ext={node.ext}
+        byteLength={node.byteLength}
         onClose={() => router.push(`/c/${node.cabinetId}`)}
       />
     </div>

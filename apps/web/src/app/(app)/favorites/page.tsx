@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Download, File as FileIcon, Star, Trash2 } from 'lucide-react';
 
 import { PageHeader } from '@/components/page-header';
@@ -15,6 +16,7 @@ import {
 } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatBytes, formatDate } from '@/lib/format';
+import { openHrefFor } from '@/components/row-actions';
 import { trpc } from '@/lib/trpc';
 
 export default function FavoritesPage() {
@@ -77,15 +79,13 @@ export default function FavoritesPage() {
               {items.map(({ node, addedAt }) => (
                 <TableRow key={node.id} className="group/row">
                   <TableCell title={node.name}>
-                    <a
-                      href={`/file/${node.id}`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <Link
+                      href={openHrefFor(node)}
                       className="hover:text-primary flex w-full min-w-0 items-center gap-2 hover:underline"
                     >
                       <FileIcon className="text-muted-foreground size-4 shrink-0" />
                       <span className="truncate">{node.name}</span>
-                    </a>
+                    </Link>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs tabular-nums">
                     {formatBytes(node.byteLength)}
