@@ -21,10 +21,33 @@ apps/web          Next.js 16 App Router + tRPC client, shadcn/ui on Tailwind v4
 npm install
 ```
 
-### A PostgreSQL to develop against
+### A database
 
-If there is no PostgreSQL on the machine and no Docker, the server binaries can
-come from npm — no install, no service, no admin rights:
+[Prisma Postgres](https://www.prisma.io/postgres). Create a database in the
+Prisma Console; its page gives two connection strings, and they are not
+interchangeable:
+
+| String | Host | Used by |
+| --- | --- | --- |
+| pooled | `pooled.db.prisma.io` | the API and the worker, as `DATABASE_URL` |
+| direct | `db.prisma.io` | the Prisma CLI, as `DIRECT_DATABASE_URL` |
+
+Both need `?sslmode=require`. The split is not optional book-keeping: the
+pooled host is PgBouncer in transaction mode, and `migrate`/`db push` take an
+advisory lock and use a shadow database, neither of which survives being
+handed back on a different connection. `directUrl` in `schema.prisma` is what
+routes the CLI around the pooler.
+
+Nothing in the application code knows which it is talking to — Prisma Postgres
+over TCP is ordinary PostgreSQL, so there is no driver adapter and no client
+extension. Queries run through the pooled connection are billed per operation.
+
+#### Or an ordinary PostgreSQL
+
+Set `DATABASE_URL` alone and leave `DIRECT_DATABASE_URL` unset; the CLI
+wrapper points the direct connection at the same URL. If there is no
+PostgreSQL on the machine and no Docker, the server binaries can come from
+npm — no install, no service, no admin rights:
 
 ```bash
 npm install --no-save embedded-postgres@17.5.0-beta.15
@@ -50,12 +73,17 @@ BOM**: Node's parser treats a leading BOM as part of the first key's name, and
 the first variable silently goes missing.
 
 ```bash
-DATABASE_URL="postgresql://ecm:ecm@localhost:5432/ecm?schema=public"
+DATABASE_URL="postgres://USER:PASSWORD@pooled.db.prisma.io:5432/postgres?sslmode=require"
+DIRECT_DATABASE_URL="postgres://USER:PASSWORD@db.prisma.io:5432/postgres?sslmode=require"
 REPOSITORY_ROOT="C:/ecm-repository"
 REPOSITORY_MASTER_KEY="<32 random bytes, base64 — only needed for encrypted cabinets>"
 WEB_ORIGIN="http://localhost:3000"
 PORT=4000
 ```
+
+`apps/api/.env.example` has the same thing with the ordinary-PostgreSQL form
+commented beside it. The Prisma CLI reads this file too — the `db:*` scripts
+hand it to Node — so the connection strings are written down once.
 
 Generate the client and create the schema:
 
@@ -64,13 +92,13 @@ npm run db:generate
 ```
 
 ```bash
-DATABASE_URL=... npm run db:push
+npm run db:push
 ```
 
 Seed the four built-in roles, an administrator and a demo cabinet:
 
 ```bash
-DATABASE_URL=... ECM_ADMIN_PASSWORD='<choose one>' npm run db:seed
+ECM_ADMIN_PASSWORD='<choose one>' npm run db:seed
 ```
 
 Run both processes:

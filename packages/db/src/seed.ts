@@ -8,7 +8,13 @@
  */
 import { BUILTIN_ROLES, BUILTIN_ROLE_RIGHTS, type BuiltinRoleName } from '@ecm/domain';
 import argon2 from 'argon2';
-import { prisma } from './index.js';
+// The generated client directly, not the `./index.js` singleton: Node's type
+// stripping does not rewrite a `.js` specifier back to the `.ts` beside it, so
+// importing the source module by its compiled name fails before the seed runs.
+// A one-shot script wants its own connection anyway.
+import { PrismaClient } from '../generated/client/index.js';
+
+const prisma = new PrismaClient();
 
 const ADMIN_USER = process.env.ECM_ADMIN_USER ?? 'admin';
 const ADMIN_PASSWORD = process.env.ECM_ADMIN_PASSWORD;
