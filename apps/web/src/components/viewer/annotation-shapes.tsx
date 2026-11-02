@@ -24,6 +24,12 @@ interface Props {
   page: RenderedPage;
   selected: string | null;
   onSelect: (name: string | null) => void;
+  /**
+   * Whether an annotation can be clicked. The enclosing `<svg>` takes no
+   * pointer events at all — it would cover the text layer — so a shape that
+   * wants them has to ask for them back here.
+   */
+  interactive: boolean;
 }
 
 interface Box {
@@ -40,7 +46,13 @@ interface Box {
  * zoom or a rotation needs no stored value to change — the only thing that
  * moves is the page's transform.
  */
-export function AnnotationShapes({ annotations, page, selected, onSelect }: Props) {
+export function AnnotationShapes({
+  annotations,
+  page,
+  selected,
+  onSelect,
+  interactive,
+}: Props) {
   /** A PDF-space rect as a viewport-space box. */
   function box(rect: ViewerAnnotation['rect']): Box {
     const [ax, ay] = page.toViewport(rect.x1, rect.y2);
@@ -82,7 +94,10 @@ export function AnnotationShapes({ annotations, page, selected, onSelect }: Prop
             event.stopPropagation();
             onSelect(isSelected ? null : a.name);
           },
-          style: { cursor: 'pointer' as const },
+          style: {
+            cursor: 'pointer' as const,
+            pointerEvents: (interactive ? 'auto' : 'none') as 'auto' | 'none',
+          },
         };
 
         const shape = (() => {

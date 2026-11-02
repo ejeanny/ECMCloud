@@ -297,7 +297,15 @@ export function ViewerPage({
           className="absolute inset-0"
           width={size.width}
           height={size.height}
-          style={{ pointerEvents: tool === 'select' ? 'auto' : 'none' }}
+          // The overlay covers the whole page, and an `<svg>` is not
+          // transparent to the pointer the way its empty areas suggest: the
+          // root element is a box, and hit testing stops at it. Left to
+          // `auto` it swallows every mousedown over the page, so the text
+          // layer underneath can never start a selection — which is to say
+          // the select tool disabled selecting. Only the annotations
+          // themselves take the pointer, and only when there is a tool that
+          // wants them.
+          style={{ pointerEvents: 'none' }}
         >
           {highlights.map(({ rect, active }, i) => {
             const [x1, y1] = rendered.toViewport(rect.x1, rect.y2);
@@ -319,6 +327,10 @@ export function ViewerPage({
             page={rendered}
             selected={selected}
             onSelect={onSelectAnnotation}
+            // Clicking an annotation picks it up, but only with the select
+            // tool: while a markup tool is armed, a drag that happens to start
+            // over an existing highlight has to reach the text under it.
+            interactive={tool === 'select'}
           />
 
           {/* The gesture in progress, drawn in viewport space since it has not

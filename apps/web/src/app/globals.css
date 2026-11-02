@@ -184,25 +184,74 @@
 
 /* --- PDF.js text layer --------------------------------------------------
    PDF.js builds these spans itself and positions them over the glyphs the
-   canvas paints, so they cannot be Tailwind classes on a component. */
+   canvas paints, so they cannot be Tailwind classes on a component.
+
+   What it builds is only half a layout. A span carries its position as a
+   percentage — which stands on its own — but its *size* as a custom property,
+   `--font-height`, in unscaled PDF points, and it never sets `font-size` at
+   all. The stylesheet is expected to turn that into one, which means these
+   rules are not decoration: without them every span renders at the inherited
+   font size, so the invisible text sits at roughly the right place and the
+   wrong size. Selecting it then yields rectangles that match nothing on the
+   page, and a highlight made from that selection is stored wrong — it is off
+   in the PDF, not just on screen.
+
+   `--total-scale-factor` is the page's scale, set per page in `renderText`;
+   the rest of the contract (`--scale-x` for a run squeezed to fit its measured
+   width, `--rotate`, and the `--min-font-size` pair that works around a
+   browser-enforced font-size floor) is PDF.js's, reproduced from pdfjs-dist 6's
+   own `pdf_viewer.css`. Keep it in step when that dependency moves. */
 
 .viewer-text-layer {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  overflow: clip;
   line-height: 1;
   text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
   forced-color-adjust: none;
   transform-origin: 0 0;
+
+  --total-scale-factor: 1;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
 }
 
-.viewer-text-layer span,
-.viewer-text-layer br {
+/* The layer is laid out upright and then turned, so a rotated page needs no
+   different geometry — which is why the spans can use percentages at all. */
+.viewer-text-layer[data-main-rotation='90'] {
+  transform: rotate(90deg) translateY(-100%);
+}
+.viewer-text-layer[data-main-rotation='180'] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+.viewer-text-layer[data-main-rotation='270'] {
+  transform: rotate(270deg) translateX(-100%);
+}
+
+.viewer-text-layer :is(span, br) {
   position: absolute;
   color: transparent;
   white-space: pre;
   cursor: text;
   transform-origin: 0 0;
+  user-select: text;
+}
+
+.viewer-text-layer > :not(.markedContent),
+.viewer-text-layer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.viewer-text-layer .markedContent {
+  display: contents;
 }
 
 .viewer-text-layer ::selection {

@@ -445,8 +445,26 @@ export async function openPdf({ url, onProgress }: OpenOptions): Promise<OpenDoc
       const p = await page(index);
       const vp = viewportFor(p, options);
       container.replaceChildren();
-      container.style.width = `${Math.floor(vp.width)}px`;
-      container.style.height = `${Math.floor(vp.height)}px`;
+
+      // The scale reaches the text layer through CSS, not through the markup:
+      // PDF.js writes each span's height as `--font-height` in unscaled points
+      // and leaves the stylesheet to multiply it by `--total-scale-factor`
+      // (globals.css says what the rest of that contract is). Skip this and
+      // the spans fall back to the inherited font size, which is how a
+      // selection — and every highlight made from one — comes to sit off the
+      // text it was drawn over.
+      //
+      // `userUnit` is the page's own unit scale, which `viewport.scale` leaves
+      // out and `viewport.width` includes; a page that declares one is rare but
+      // renders at the wrong size for exactly as long as it is forgotten here.
+      const style = container.style;
+      style.setProperty('--total-scale-factor', String(vp.scale * vp.userUnit));
+      // The layer sizes itself with a `round()` to whole device pixels, whose
+      // step comes from these. They are not optional: left undefined, the
+      // expression is invalid and the layer keeps whatever size it had, which
+      // on a rotated page is the wrong one.
+      style.setProperty('--scale-round-x', '1px');
+      style.setProperty('--scale-round-y', '1px');
 
       const layer = new TextLayer({
         textContentSource: p.streamTextContent({ includeMarkedContent: false }),
