@@ -137,6 +137,11 @@ export const JOB_KINDS = [
   'notification',
   'retention',
   'recycle',
+  /// Evaluate the published workflows' triggers against one document.
+  /// Its own kind, rather than a side effect of text extraction: a PDF has no
+  /// text extractor here, and a document that cannot be read is still a
+  /// document a workflow should start on.
+  'workflowTrigger',
   'aiSummary',
   'rpa',
   /// Merge a document's annotations into a produced PDF (Dokmee:

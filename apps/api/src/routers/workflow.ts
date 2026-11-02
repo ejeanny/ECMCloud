@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { prisma } from '@ecm/db';
 import { completeTodoInput, pageInput, saveWorkflowInput, startWorkflowInput } from '@ecm/domain';
 import { audit } from '../audit.js';
+import { compileClauses, fieldsFor } from '../index-values.js';
 import {
   assertCanEnter,
   badRequest,
@@ -146,6 +147,29 @@ export const workflowRouter = router({
       }
       if (input.entryTaskKey !== null && !taskKeys.has(input.entryTaskKey)) {
         badRequest(`The entry task "${input.entryTaskKey}" is not one of the tasks.`);
+      }
+
+      // Trigger clauses are only compiled when a document arrives, deep inside
+      // the engine. An operator the field's type cannot answer — `contains` on
+      // a date, say — would surface there as a failed upload rather than here
+      // as a rejected design, so compile them now and keep the blame local.
+      if (input.trigger.clauses.length > 0) {
+        const fields = await fieldsFor(input.cabinetId);
+        const typeById = new Map(fields.map((f) => [f.id, f.type]));
+        for (const clause of input.trigger.clauses) {
+          if (!typeById.has(clause.fieldId)) {
+            badRequest('A trigger condition names a field that is not in this cabinet.');
+          }
+        }
+        try {
+          compileClauses(input.trigger.clauses, typeById, input.trigger.combine);
+        } catch (error) {
+          badRequest(
+            error instanceof Error
+              ? `That trigger condition cannot be evaluated: ${error.message}`
+              : 'That trigger condition cannot be evaluated.',
+          );
+        }
       }
       // The engine takes the *first* routing that matches, so two edges with
       // the same condition from one task make the flow depend on row order.
@@ -466,7 +490,9 @@ export const workflowRouter = router({
         where: { nodeId: input.nodeId },
         orderBy: { started: 'desc' },
         include: {
-          workflow: { select: { name: true } },
+          // The id as well as the name: without it a caller cannot tell two
+          // instances apart by workflow, or link to the design that made one.
+          workflow: { select: { id: true, name: true } },
           todos: {
             orderBy: { created: 'asc' },
             include: {

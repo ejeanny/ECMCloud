@@ -33,6 +33,7 @@ import {
 import { trpc } from '@/lib/trpc';
 import { Inspector } from './inspector';
 import { nodeTypes } from './nodes';
+import { TriggerEditor, type TriggerState } from './trigger-editor';
 
 interface Props {
   cabinetId: string;
@@ -45,17 +46,7 @@ interface Props {
     tasks: DesignTask[];
     routings: DesignRouting[];
     entryTaskKey: string | null;
-    /**
-     * Carried through a save untouched. Saving creates a whole revision, so
-     * omitting it here would silently clear the trigger that starts the
-     * workflow — the graph would be right and nothing would ever run it.
-     */
-    trigger: {
-      onNewDocument: boolean;
-      onIndexChanged: boolean;
-      combine: 'and' | 'or';
-      clauses: unknown[];
-    };
+    trigger: TriggerState;
   };
   readOnly: boolean;
   onSaved: (result: { workflowId: string; revision: number }) => void;
@@ -89,9 +80,12 @@ export function WorkflowDesigner({
   const [description, setDescription] = useState(initial.description ?? '');
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  const [trigger, setTrigger] = useState<TriggerState>(initial.trigger);
+  const [panel, setPanel] = useState<'selection' | 'trigger'>('selection');
   const [dirty, setDirty] = useState(false);
 
   const assignees = trpc.workflow.assignees.useQuery({ cabinetId });
+  const fields = trpc.indexField.columns.useQuery({ cabinetId });
   const utils = trpc.useUtils();
 
   const save = trpc.workflow.save.useMutation({
@@ -114,8 +108,9 @@ export function WorkflowDesigner({
   useEffect(() => {
     setNodes(graph.nodes);
     setEdges(graph.edges);
+    setTrigger(initial.trigger);
     setDirty(false);
-  }, [graph, setNodes, setEdges]);
+  }, [graph, initial.trigger, setNodes, setEdges]);
 
   const problems = useMemo(() => problemsIn(nodes, edges), [nodes, edges]);
   const problemIds = useMemo(() => new Set(problems.map((p) => p.id)), [problems]);
@@ -224,9 +219,7 @@ export function WorkflowDesigner({
       entryTaskKey,
       name,
       description: description.trim() || undefined,
-      // The trigger belongs to the revision, and this designer edits the graph:
-      // pass it through as it was.
-      trigger: initial.trigger as never,
+      trigger: trigger as never,
       tasks,
       routings,
     });
@@ -270,6 +263,20 @@ export function WorkflowDesigner({
   const selected = nodes.find((n) => n.id === selectedNode) ?? null;
   const selectedEdgeObject = edges.find((e) => e.id === selectedEdge) ?? null;
 
+  /** What the workflow starts on, in one line, or empty when nothing does. */
+  const triggerSummary = (() => {
+    const on: string[] = [];
+    if (trigger.onNewDocument) on.push('a document is added');
+    if (trigger.onIndexChanged) on.push('index values change');
+    if (on.length === 0) return '';
+    const when = on.join(' or ');
+    return trigger.clauses.length === 0
+      ? `starts when ${when}`
+      : `starts when ${when}, if ${trigger.clauses.length} condition${
+          trigger.clauses.length === 1 ? '' : 's'
+        } hold${trigger.clauses.length === 1 ? 's' : ''}`;
+  })();
+
   return (
     <div className="wf-designer">
       <div className="viewer-toolbar">
@@ -299,6 +306,9 @@ export function WorkflowDesigner({
             {initial.published ? ' · published' : ''}
           </span>
         ) : null}
+        <span className="small muted">
+          {triggerSummary || 'started by hand only'}
+        </span>
         <span className="spacer" />
         <button onClick={relayout} disabled={readOnly}>
           Tidy up
@@ -366,10 +376,12 @@ export function WorkflowDesigner({
             onNodeClick={(_, node) => {
               setSelectedNode(node.id);
               setSelectedEdge(null);
+              setPanel('selection');
             }}
             onEdgeClick={(_, edge) => {
               setSelectedEdge(edge.id);
               setSelectedNode(null);
+              setPanel('selection');
             }}
             onPaneClick={() => {
               setSelectedNode(null);
@@ -389,16 +401,53 @@ export function WorkflowDesigner({
           </ReactFlow>
         </div>
 
-        <Inspector
-          node={selected}
-          edge={selectedEdgeObject}
-          roles={assignees.data?.roles ?? []}
-          users={assignees.data?.users ?? []}
-          onTaskChange={onTaskChange}
-          onEdgeChange={onEdgeChange}
-          onDelete={deleteSelected}
-          readOnly={readOnly}
-        />
+        <div className="wf-side">
+          <div className="row small">
+            <button
+              onClick={() => setPanel('selection')}
+              style={
+                panel === 'selection'
+                  ? { borderColor: 'var(--accent)', color: 'var(--accent)' }
+                  : undefined
+              }
+            >
+              Selection
+            </button>
+            <button
+              onClick={() => setPanel('trigger')}
+              style={
+                panel === 'trigger'
+                  ? { borderColor: 'var(--accent)', color: 'var(--accent)' }
+                  : undefined
+              }
+            >
+              Trigger{triggerSummary ? ' •' : ''}
+            </button>
+          </div>
+
+          {panel === 'trigger' ? (
+            <TriggerEditor
+              value={trigger}
+              fields={fields.data ?? []}
+              readOnly={readOnly}
+              onChange={(next) => {
+                setTrigger(next);
+                touched();
+              }}
+            />
+          ) : (
+            <Inspector
+              node={selected}
+              edge={selectedEdgeObject}
+              roles={assignees.data?.roles ?? []}
+              users={assignees.data?.users ?? []}
+              onTaskChange={onTaskChange}
+              onEdgeChange={onEdgeChange}
+              onDelete={deleteSelected}
+              readOnly={readOnly}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

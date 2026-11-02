@@ -172,9 +172,19 @@ export const uploadRouter = router({
         await tx.upload.update({ where: { id: upload.id }, data: { state: 'complete' } });
 
         // Queue text extraction, as Dokmee's AutoOcr / DataExtraction
-        // services picked new documents off their queues (§2).
-        await tx.job.create({
-          data: { kind: 'textExtraction', cabinetId: cabinet.id, nodeId: created.id },
+        // services picked new documents off their queues (§2), and separately
+        // ask the workflow triggers about it — a document that has no text
+        // extractor still arrived, and a workflow may be waiting for it.
+        await tx.job.createMany({
+          data: [
+            { kind: 'textExtraction', cabinetId: cabinet.id, nodeId: created.id },
+            {
+              kind: 'workflowTrigger',
+              cabinetId: cabinet.id,
+              nodeId: created.id,
+              payload: { event: 'newDocument' } as never,
+            },
+          ],
         });
 
         return created;

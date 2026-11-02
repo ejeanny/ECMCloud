@@ -460,9 +460,19 @@ export const nodeRouter = router({
         }
       }
 
-      await prisma.$transaction((tx) =>
-        setIndexValues(tx, node.cabinetId, node.id, input.values),
-      );
+      await prisma.$transaction(async (tx) => {
+        await setIndexValues(tx, node.cabinetId, node.id, input.values);
+        // A workflow can be triggered by an index change, so ask — in the same
+        // transaction, or a trigger could read the values as they were before.
+        await tx.job.create({
+          data: {
+            kind: 'workflowTrigger',
+            cabinetId: node.cabinetId,
+            nodeId: node.id,
+            payload: { event: 'indexChanged' } as never,
+          },
+        });
+      });
 
       await audit(ctx.principal, ctx.ip, {
         action: 'indexUpdate',

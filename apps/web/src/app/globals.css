@@ -635,3 +635,30 @@ tbody tr[aria-selected='true'] {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+.wf-side {
+  width: 300px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.wf-side .wf-inspector {
+  width: auto;
+  flex: 1;
+}
+
+.wf-clause {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.wf-clause select,
+.wf-clause input {
+  min-width: 0;
+}

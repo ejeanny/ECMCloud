@@ -103,8 +103,29 @@ const handlers: Partial<Record<JobKind, Handler>> = {
         textExtractedAt: new Date(),
       },
     });
+  },
 
-    await fireTriggers(node.cabinetId, node.id, 'newDocument');
+  /**
+   * Evaluate the published workflows' triggers against one document.
+   *
+   * This used to hang off the end of text extraction, which meant a workflow
+   * could only ever start on a file this rebuild can read as text — so a PDF,
+   * which is most of what an ECM holds, triggered nothing. It is its own kind
+   * now, enqueued when a document arrives and when its index values change.
+   */
+  workflowTrigger: async (job) => {
+    if (!job.nodeId || !job.cabinetId) return;
+    const payload = job.payload as { event?: 'newDocument' | 'indexChanged' } | null;
+    const event = payload?.event ?? 'newDocument';
+
+    // A document already in the bin should not start anything.
+    const node = await prisma.node.findUnique({
+      where: { id: job.nodeId },
+      select: { inRecycleBin: true, kind: true },
+    });
+    if (!node || node.inRecycleBin || node.kind !== 'document') return;
+
+    await fireTriggers(job.cabinetId, job.nodeId, event);
   },
 
   /**

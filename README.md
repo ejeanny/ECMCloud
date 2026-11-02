@@ -124,9 +124,11 @@ drawing the same graph `workflow.save` takes: tasks joined by routings that
 fire on approve, reject or a named choice, with the start and the stop drawn
 rather than inferred. Problems that would be rejected on save — an ambiguous
 pair of routings, a decision with no branches, a missing start — are shown on
-the canvas before the round trip. Behind it: design revisions with a publish
-step, role and user assignees, triggers on new document or index change
-narrowed by criteria, a per-user task inbox, and per-document instance history.
+the canvas before the round trip. The trigger is edited beside it: start on a
+new document or on an index change, narrowed by conditions on index values,
+offering only the operators each field's type can answer. Behind it: design
+revisions with a publish step, role and user assignees, a per-user task inbox,
+and per-document instance history.
 
 **Retention** — rules with a period, a date field, criteria and an action;
 expiry preview before anything is deleted; notify / recycle / permanent delete.

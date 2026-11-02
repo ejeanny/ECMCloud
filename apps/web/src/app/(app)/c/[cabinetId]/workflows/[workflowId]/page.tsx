@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { WorkflowDesigner } from '@/components/workflow/designer';
+import type { TriggerClause } from '@/components/workflow/trigger-editor';
 import type { DesignRouting, DesignTask } from '@/lib/workflow/graph';
 import { trpc } from '@/lib/trpc';
 
@@ -54,7 +55,7 @@ export default function WorkflowDesignerPage() {
           onNewDocument: false,
           onIndexChanged: false,
           combine: 'and' as const,
-          clauses: [],
+          clauses: [] as TriggerClause[],
         },
       }
     : {
@@ -69,7 +70,7 @@ export default function WorkflowDesignerPage() {
           onNewDocument: data!.trigger.onNewDocument,
           onIndexChanged: data!.trigger.onIndexChanged,
           combine: data!.trigger.combine as 'and' | 'or',
-          clauses: (data!.trigger.clauses ?? []) as unknown[],
+          clauses: (data!.trigger.clauses ?? []) as TriggerClause[],
         },
       };
 
