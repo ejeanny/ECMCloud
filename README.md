@@ -136,8 +136,10 @@ rotation, a selectable text layer, search with hit highlighting, and the
 document outline. Annotations are highlight, underline, strike-out, freehand
 ink, rectangle and sticky note, drawn over the page in PDF user space so they
 survive any zoom — stored beside the document and exported as **XFDF**, which
-Acrobat and any other PDF tool can read. Adding, editing, deleting and burning
-are four separate privileges, as Dokmee had them.
+Acrobat and any other PDF tool can read. Burning merges them into the page
+content and keeps the file as it was as a version, so a burn is recorded rather
+than destructive and `version.revert` undoes it. Adding, editing, deleting and
+burning are four separate privileges, as Dokmee had them.
 
 **Per-user** — notes, favourites, recents, notifications, settings, password
 change.
@@ -151,10 +153,9 @@ fails with the specific reason it has none, rather than silently doing nothing:
 
 - OCR and zone OCR; text extraction beyond plain-text formats
 - Office/PDF conversion, print-version generation, page manipulation
-  (split, merge, extract, rotate, re-order), Bates labelling, and burning
-  annotations or stamps into a produced file — annotations are displayed and
-  exported as XFDF, but merging them into the PDF needs a writer that can
-  build appearance streams
+  (split, merge, extract, rotate, re-order), Bates labelling, and stamp
+  burning. Burning *annotations* into a PDF is implemented
+  (`apps/api/src/burn.ts`); the rest still needs a format engine
 - Data extraction, auto-indexing, data export to external systems, RPA
 - AI search, AI summaries, AI file creation
 - Email ingest and delivery, DocuSign, SAML and Active Directory sync

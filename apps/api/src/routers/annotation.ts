@@ -409,7 +409,15 @@ export const annotationRouter = router({
           kind: 'burnAnnotations',
           cabinetId: node.cabinetId,
           nodeId: node.id,
-          payload: { nodeId: node.id } as never,
+          // Who asked travels with the job: the worker has no session, and a
+          // burn is a permanent change that the audit trail has to attribute.
+          payload: {
+            nodeId: node.id,
+            requestedBy: {
+              userId: ctx.principal.userId,
+              userName: ctx.principal.userName,
+            },
+          } as never,
         },
         select: { id: true },
       });

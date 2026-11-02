@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { prisma } from '@ecm/db';
-import type { JobKind, RestrictionClause, FieldType } from '@ecm/domain';
+import type { Annotation, JobKind, RestrictionClause, FieldType } from '@ecm/domain';
+import { burnAnnotations } from './burn.js';
 import { compileClauses, fieldsFor } from './index-values.js';
-import { deleteBlob } from './storage.js';
+import { deleteBlob, readBlob, writeBlob } from './storage.js';
 import { fireTriggers } from './workflow-engine.js';
 
 /**
@@ -38,9 +41,6 @@ const NOT_IMPLEMENTED: Partial<Record<JobKind, string>> = {
   email: 'needs an SMTP or IMAP transport',
   aiSummary: 'needs a model endpoint',
   rpa: 'needs the RPA runner',
-  burnAnnotations:
-    'needs a PDF writer that can build annotation appearance streams (PDF-VIEWER.md §7); ' +
-    'the markup is exportable as XFDF in the meantime',
 };
 
 const handlers: Partial<Record<JobKind, Handler>> = {
@@ -112,6 +112,175 @@ const handlers: Partial<Record<JobKind, Handler>> = {
    * shares its source's blob, so deleting on the first purge would empty the
    * other document.
    */
+  /**
+   * Merge a document's annotations into its content and keep the result as a
+   * new version.
+   *
+   * The pre-burn bytes become version N, exactly as a check-in's do, so burning
+   * is recorded rather than destructive and `version.revert` undoes it. The
+   * annotation rows are kept and stamped `burnedAt`: they are the record of
+   * what was applied, and the router already refuses to edit or delete one.
+   */
+  burnAnnotations: async (job) => {
+    if (!job.nodeId || !job.cabinetId) return;
+    const requestedBy = (job.payload as { requestedBy?: { userId: string; userName: string } } | null)
+      ?.requestedBy;
+    // A burn writes a new version, and a version row names its author. A job
+    // that cannot say who asked for a permanent change does not get to make one.
+    if (!requestedBy) {
+      throw new Error('This burn job records no requesting user, so it cannot be attributed.');
+    }
+
+    const node = await prisma.node.findUnique({
+      where: { id: job.nodeId },
+      select: {
+        id: true,
+        name: true,
+        ext: true,
+        cabinetId: true,
+        blobId: true,
+        byteLength: true,
+        pages: true,
+        sha256: true,
+        encryptedKey: true,
+        encryptionIv: true,
+        fullText: true,
+        textExtractedAt: true,
+      },
+    });
+    if (!node?.blobId) throw new Error('This document has no stored content.');
+    if (node.ext?.toLowerCase() !== 'pdf') {
+      throw new Error(
+        `Cannot burn into .${node.ext ?? '(none)'} — only PDF is written here, and ` +
+          'converting other formats first needs the conversion engine this rebuild does not ship.',
+      );
+    }
+
+    const rows = await prisma.annotation.findMany({
+      where: { nodeId: node.id, burnedAt: null },
+      orderBy: [{ page: 'asc' }, { created: 'asc' }],
+    });
+    if (rows.length === 0) return;
+
+    const annotations: Annotation[] = rows.map((row) => ({
+      name: row.name,
+      kind: row.kind as Annotation['kind'],
+      page: row.page,
+      rect: { x1: row.x1, y1: row.y1, x2: row.x2, y2: row.y2 },
+      color: row.color,
+      opacity: row.opacity,
+      coords: Array.isArray(row.coords) ? (row.coords as number[]) : undefined,
+      gestures: Array.isArray(row.gestures) ? (row.gestures as number[][]) : undefined,
+      width: row.width ?? undefined,
+      contents: row.contents ?? undefined,
+    }));
+
+    const envelope =
+      node.encryptedKey && node.encryptionIv
+        ? { encryptedKey: node.encryptedKey, encryptionIv: node.encryptionIv }
+        : null;
+    const stream = await readBlob(node.cabinetId, node.blobId, envelope);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream as AsyncIterable<Buffer>) chunks.push(chunk);
+
+    const result = await burnAnnotations(Buffer.concat(chunks), annotations);
+    if (result.burned.length === 0) {
+      throw new Error(
+        `Nothing could be drawn: ${result.skipped.map((s) => s.reason).join('; ')}`,
+      );
+    }
+
+    const cabinet = await prisma.fileCabinet.findUniqueOrThrow({
+      where: { id: node.cabinetId },
+      select: { repoEncrypted: true },
+    });
+
+    const blobId = randomUUID();
+    const stored = await writeBlob(
+      node.cabinetId,
+      blobId,
+      Readable.from(Buffer.from(result.bytes)),
+      { encrypt: cabinet.repoEncrypted },
+    );
+
+    const latest = await prisma.nodeVersion.findFirst({
+      where: { nodeId: node.id },
+      orderBy: [{ majorVersion: 'desc' }, { minorVersion: 'desc' }],
+      select: { majorVersion: true, minorVersion: true },
+    });
+    const major = latest?.majorVersion ?? 1;
+    const minor = (latest?.minorVersion ?? 0) + 1;
+
+    await prisma.$transaction(async (tx) => {
+      // The version row takes ownership of the blob being superseded, so the
+      // un-annotated original stays reachable and the recycler leaves it alone.
+      await tx.nodeVersion.create({
+        data: {
+          nodeId: node.id,
+          majorVersion: major,
+          minorVersion: minor,
+          name: node.name,
+          ext: node.ext,
+          byteLength: node.byteLength,
+          pages: node.pages,
+          sha256: node.sha256,
+          blobId: node.blobId,
+          encryptedKey: node.encryptedKey,
+          encryptionIv: node.encryptionIv,
+          fullText: node.fullText,
+          textExtractedAt: node.textExtractedAt,
+          comment: `Before burning ${result.burned.length} annotation(s)`,
+          createdById: requestedBy.userId,
+        },
+      });
+
+      await tx.node.update({
+        where: { id: node.id },
+        data: {
+          blobId,
+          byteLength: BigInt(stored.byteLength),
+          sha256: stored.sha256,
+          encryptedKey: stored.envelope?.encryptedKey ?? null,
+          encryptionIv: stored.envelope?.encryptionIv ?? null,
+          fullText: null,
+          textExtractedAt: null,
+        },
+      });
+
+      await tx.annotation.updateMany({
+        where: { nodeId: node.id, name: { in: result.burned } },
+        data: { burnedAt: new Date() },
+      });
+
+      await tx.auditRecord.create({
+        data: {
+          action: 'update',
+          userId: requestedBy.userId,
+          userName: requestedBy.userName,
+          cabinetId: node.cabinetId,
+          nodeId: node.id,
+          nodeName: node.name,
+          detail: {
+            what: 'burnAnnotations',
+            burned: result.burned.length,
+            // Named here rather than thrown: the transaction has committed, so
+            // failing the job would retry a burn that already happened and add
+            // a second version. What was skipped stays unburned, still visible
+            // in the viewer, and a later burn can try it again.
+            skipped: result.skipped,
+            version: `${major}.${minor}`,
+          } as never,
+        },
+      });
+    });
+
+    // A burned mark is part of the page now, so anything reading the text has
+    // to look again.
+    await prisma.job.create({
+      data: { kind: 'textExtraction', cabinetId: node.cabinetId, nodeId: node.id },
+    });
+  },
+
   recycle: async (job) => {
     const payload = job.payload as { blobId?: string } | null;
     if (!job.cabinetId || !payload?.blobId) return;

@@ -73,7 +73,13 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
   const importXfdf = trpc.annotation.importXfdf.useMutation({
     onSuccess: () => utils.annotation.list.invalidate({ nodeId }),
   });
-  const burn = trpc.annotation.queueBurn.useMutation();
+  const burn = trpc.annotation.queueBurn.useMutation({
+    onSuccess() {
+      // The worker rewrites the file a moment later, so pick the result up
+      // rather than leaving the toolbar claiming the marks are still pending.
+      setTimeout(() => void utils.annotation.list.invalidate({ nodeId }), 3000);
+    },
+  });
 
   // --- open -------------------------------------------------------------
 
@@ -227,12 +233,18 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
   const byPage = useMemo(() => {
     const map = new Map<number, ViewerAnnotation[]>();
     for (const a of annotations.data ?? []) {
+      // A burned annotation is part of the page content now, so drawing it in
+      // the overlay as well would double every mark — darker highlights, bolder
+      // strokes — and make burning look like it had corrupted the file.
+      if (a.burnedAt) continue;
       const list = map.get(a.page) ?? [];
       list.push(a as ViewerAnnotation);
       map.set(a.page, list);
     }
     return map;
   }, [annotations.data]);
+
+  const burnedCount = (annotations.data ?? []).filter((a) => a.burnedAt).length;
 
   const hitsByPage = useMemo(() => {
     const map = new Map<number, Array<{ x1: number; y1: number; x2: number; y2: number }>>();
@@ -400,6 +412,7 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
 
         <span className="small muted">
           {total} annotation{total === 1 ? '' : 's'}
+          {burnedCount > 0 ? `, ${burnedCount} burned in` : ''}
         </span>
         <span className="viewer-group">
           <button onClick={downloadXfdf} disabled={total === 0} title="Export as XFDF">
@@ -416,8 +429,8 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
           </label>
           <button
             onClick={() => burn.mutate({ nodeId })}
-            disabled={total === 0 || burn.isPending}
-            title="Merge annotations into a produced PDF"
+            disabled={total === burnedCount || burn.isPending}
+            title="Merge the annotations into the page content, keeping the original as a version"
           >
             Burn
           </button>
@@ -429,7 +442,12 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
       {importXfdf.error ? <p className="error small">{importXfdf.error.message}</p> : null}
       {burn.error ? <p className="error small">{burn.error.message}</p> : null}
       {burn.data ? (
-        <p className="small muted">Burn queued as job {burn.data.jobId}.</p>
+        <p className="small muted">
+          Burning {burn.data.annotations} annotation
+          {burn.data.annotations === 1 ? '' : 's'} into the page content (job{' '}
+          {burn.data.jobId.slice(0, 8)}). The file before the burn is kept as a
+          version — reload to see the result.
+        </p>
       ) : null}
 
       {selectedAnnotation ? (

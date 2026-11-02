@@ -268,10 +268,11 @@ Two consequences:
 
 > **This is now built.** The viewer in `apps/web/src/components/viewer/` renders
 > with PDF.js behind the seam in `apps/web/src/lib/viewer/pdf.ts`; annotations
-> are stored by `apps/api/src/routers/annotation.ts` and serialised by
-> `packages/domain/src/xfdf.ts`. What follows is the reasoning it was built on,
-> kept because the engine-replacement argument still holds — and because the
-> long tail in the table below is still ahead.
+> are stored by `apps/api/src/routers/annotation.ts`, serialised by
+> `packages/domain/src/xfdf.ts`, and burned into the page content by
+> `apps/api/src/burn.ts`. What follows is the reasoning it was built on, kept
+> because the engine-replacement argument still holds — and because the long
+> tail in the table below is still ahead.
 
 Replacing this is three separate problems with very different difficulty. Be
 honest about which is which.
@@ -308,7 +309,7 @@ need.
 |---|---|---|
 | Page insert/extract/merge/rotate | `pdf-lib` (MIT) | Straightforward |
 | Watermark / stamp | `pdf-lib` | Straightforward; fonts need care |
-| Burn annotations (XFDF → PDF) | `pdf-lib` + your XFDF reader | Moderate; appearance streams are the work |
+| Burn annotations into the page | `pdf-lib` | **Done** — `apps/api/src/burn.ts` |
 | Flatten form fields | `pdf-lib`, or `qpdf` | Moderate |
 | Linearise / encrypt / repair | `qpdf` (Apache-2.0) | Solved, and better than rolling your own |
 | Rasterise (thumbnails, previews) | `pdfium` via node bindings | Solved |
