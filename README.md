@@ -21,10 +21,33 @@ apps/web          Next.js 16 App Router + tRPC client, shadcn/ui on Tailwind v4
 npm install
 ```
 
-### A PostgreSQL to develop against
+### A database
 
-If there is no PostgreSQL on the machine and no Docker, the server binaries can
-come from npm — no install, no service, no admin rights:
+[Prisma Postgres](https://www.prisma.io/postgres). Create a database in the
+Prisma Console; its page gives two connection strings, and they are not
+interchangeable:
+
+| String | Host | Used by |
+| --- | --- | --- |
+| pooled | `pooled.db.prisma.io` | the API and the worker, as `DATABASE_URL` |
+| direct | `db.prisma.io` | the Prisma CLI, as `DIRECT_DATABASE_URL` |
+
+Both need `?sslmode=require`. The split is not optional book-keeping: the
+pooled host is PgBouncer in transaction mode, and `migrate`/`db push` take an
+advisory lock and use a shadow database, neither of which survives being
+handed back on a different connection. `directUrl` in `schema.prisma` is what
+routes the CLI around the pooler.
+
+Nothing in the application code knows which it is talking to — Prisma Postgres
+over TCP is ordinary PostgreSQL, so there is no driver adapter and no client
+extension. Queries run through the pooled connection are billed per operation.
+
+#### Or an ordinary PostgreSQL
+
+Set `DATABASE_URL` alone and leave `DIRECT_DATABASE_URL` unset; the CLI
+wrapper points the direct connection at the same URL. If there is no
+PostgreSQL on the machine and no Docker, the server binaries can come from
+npm — no install, no service, no admin rights:
 
 ```bash
 npm install --no-save embedded-postgres@17.5.0-beta.15
@@ -50,12 +73,17 @@ BOM**: Node's parser treats a leading BOM as part of the first key's name, and
 the first variable silently goes missing.
 
 ```bash
-DATABASE_URL="postgresql://ecm:ecm@localhost:5432/ecm?schema=public"
+DATABASE_URL="postgres://USER:PASSWORD@pooled.db.prisma.io:5432/postgres?sslmode=require"
+DIRECT_DATABASE_URL="postgres://USER:PASSWORD@db.prisma.io:5432/postgres?sslmode=require"
 REPOSITORY_ROOT="C:/ecm-repository"
 REPOSITORY_MASTER_KEY="<32 random bytes, base64 — only needed for encrypted cabinets>"
 WEB_ORIGIN="http://localhost:3000"
 PORT=4000
 ```
+
+`apps/api/.env.example` has the same thing with the ordinary-PostgreSQL form
+commented beside it. The Prisma CLI reads this file too — the `db:*` scripts
+hand it to Node — so the connection strings are written down once.
 
 Generate the client and create the schema:
 
@@ -64,24 +92,29 @@ npm run db:generate
 ```
 
 ```bash
-DATABASE_URL=... npm run db:push
+npm run db:push
 ```
 
 Seed the four built-in roles, an administrator and a demo cabinet:
 
 ```bash
-DATABASE_URL=... ECM_ADMIN_PASSWORD='<choose one>' npm run db:seed
+ECM_ADMIN_PASSWORD='<choose one>' npm run db:seed
 ```
 
-Run both processes:
-
-```bash
-npm run dev:api
-```
+Run both processes — one command starts the API and the web app together:
 
 ```bash
-npm run dev:web
+npm run dev
 ```
+
+Then open <http://localhost:3000> and sign in as `admin` with the password you
+just seeded. `npm run dev:api` and `npm run dev:web` run either half alone.
+
+The API is watched through `tsc`, not run from `src` directly: its imports
+carry `.js` specifiers because they are written for the compiled output, and
+Node's type stripping does not rewrite a `.js` specifier to the `.ts` beside
+it. `npm run dev:api` therefore builds once, then leaves `tsc -b --watch`
+writing `dist/` and `node --watch` restarting on it.
 
 The web app proxies `/trpc`, `/file` and `/upload` to the API, so the browser
 stays on one origin and the session cookie is first-party.
@@ -210,6 +243,38 @@ members it touches, the XFDF annotation channel and the server-side operations
 behind it — and sets out the open-source path (PDF.js in the browser, `pdf-lib`
 and `qpdf` on the server) with an honest account of what has no good
 replacement.
+
+## The dashboard
+
+`/` is a board of widgets, and it is where signing in lands. Each widget is a
+summary of a page that already existed — tasks, check-outs, notifications,
+recent documents, favourites, cabinets — plus two that are gated on a system
+right: Activity (`View_Audit_Log`) and Services (`Services_Logs`). The
+cabinet list moved to `/cabinets`.
+
+Widgets are dragged by the grip in their header, not by the card: a widget is
+full of links, and making the whole card the drag target would turn every
+attempt to open a document into a drag. The grip is also a focusable button —
+space picks a widget up, the arrow keys move it, space drops it — because
+drag-and-drop with no keyboard path is not an interface everyone can use.
+
+The layout is `{ id, size }[]`, not x/y coordinates: an ordered list re-flows
+by itself from three columns to one, and coordinates would have to be
+re-solved for every viewport. It is stored per user in the `workspace.settings`
+blob the API already keeps, so a board follows someone between machines, and
+writes are merged into that blob rather than replacing it. A stored layout
+outlives the code that wrote it, so `normalizeLayout` treats it as a
+preference applied over the widgets that exist now: unknown ids are dropped,
+widgets the user has lost the right to see are dropped, and widgets added to
+the application since are appended rather than silently never appearing.
+
+The Activity chart is inline SVG rather than a chart library — it is one
+series of bars. It plots the day's total and not a stack by action, because
+the endpoint breaks the count down into twenty-one actions and stacking those
+would mean cycling hues well past the point where anyone can tell them apart;
+the breakdown is one click away in the audit log, which is also the chart's
+table view. It draws at its measured pixel width rather than scaling a fixed
+`viewBox`, so the cap on how thick a bar may get is real pixels.
 
 ## The web UI
 

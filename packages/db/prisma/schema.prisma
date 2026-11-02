@@ -17,7 +17,19 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+
+  // Prisma Postgres gives out two connection strings, and they are not
+  // interchangeable. `url` is the pooled one (PgBouncer in transaction mode),
+  // which is what the API and the worker open at run time. `directUrl` is the
+  // unpooled one, which is what the CLI needs: migrations take advisory locks
+  // and use a shadow database, and a transaction-mode pooler hands those back
+  // on a different connection, so `migrate`/`db push` hang or fail through it.
+  //
+  // Against an ordinary PostgreSQL there is only one URL; the CLI wrapper in
+  // `scripts/prisma.mjs` points `DIRECT_DATABASE_URL` at `DATABASE_URL` when
+  // it is unset, so nothing has to be configured twice.
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // ---------------------------------------------------------------- identity

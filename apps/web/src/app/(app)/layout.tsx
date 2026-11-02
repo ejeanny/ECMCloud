@@ -7,6 +7,7 @@ import {
   Bell,
   FolderOpen,
   Inbox,
+  LayoutGrid,
   KeyRound,
   LockOpen,
   LogOut,
@@ -108,7 +109,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const canSeeJobs = isAdmin || me.data.systemRights.includes('Services_Logs');
 
   const main: NavItem[] = [
-    { href: '/', label: 'Cabinets', icon: FolderOpen, exact: true },
+    { href: '/', label: 'Dashboard', icon: LayoutGrid, exact: true },
+    { href: '/cabinets', label: 'Cabinets', icon: FolderOpen },
     { href: '/inbox', label: 'My tasks', icon: Inbox, count: todos.data?.total },
     {
       href: '/notifications',

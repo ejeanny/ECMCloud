@@ -12,12 +12,13 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "generate": "prisma generate",
-    "push": "prisma db push",
-    "migrate": "prisma migrate dev",
+    "generate": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs generate",
+    "push": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs db push",
+    "migrate": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs migrate dev",
     "seed": "node --env-file-if-exists=../../apps/api/.env --experimental-strip-types src/seed.ts",
-    "build": "prisma generate && tsc -b",
-    "typecheck": "tsc -b --noEmit false"
+    "build": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs generate && tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "studio": "node --env-file-if-exists=../../apps/api/.env scripts/prisma.mjs studio"
   },
   "dependencies": {
     "@ecm/domain": "*",
