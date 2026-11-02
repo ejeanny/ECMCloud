@@ -8,13 +8,14 @@ import type {
   TaskNodeData,
 } from '@/lib/workflow/graph';
 import { START_NODE_ID, STOP_NODE_ID } from '@/lib/workflow/graph';
-import { UNIMPLEMENTED_TASKS } from './nodes';
+import { AUTOMATIC_TASKS, UNIMPLEMENTED_TASKS } from './nodes';
 
 interface Props {
   node: DesignNode | null;
   edge: DesignEdge | null;
   roles: Array<{ id: string; name: string }>;
   users: Array<{ id: string; userName: string }>;
+  fields: Array<{ id: string; label: string }>;
   onTaskChange: (key: string, patch: Partial<TaskNodeData>) => void;
   onEdgeChange: (id: string, patch: Partial<RoutingEdgeData>) => void;
   onDelete: () => void;
@@ -34,6 +35,7 @@ export function Inspector({
   edge,
   roles,
   users,
+  fields,
   onTaskChange,
   onEdgeChange,
   onDelete,
@@ -132,6 +134,24 @@ export function Inspector({
   const toggle = (list: string[], id: string) =>
     list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 
+  const automatic = AUTOMATIC_TASKS.has(task.type);
+  // Only `notify` has an audience among the automatic types; `end` and the
+  // engine-bound ones address nobody, so the pickers would be noise.
+  const showAudience = !automatic || task.type === 'notify';
+
+  const configValues = Array.isArray((task.config as { values?: unknown })?.values)
+    ? ((task.config as { values: Array<{ fieldId: string; value: unknown }> }).values)
+    : [];
+
+  function setValueAt(index: number, patch: Partial<{ fieldId: string; value: unknown }>) {
+    onTaskChange(task.key, {
+      config: {
+        ...task.config,
+        values: configValues.map((v, i) => (i === index ? { ...v, ...patch } : v)),
+      },
+    });
+  }
+
   return (
     <aside className="card wf-inspector">
       <h3>Task</h3>
@@ -174,22 +194,120 @@ export function Inspector({
         ) : null}
       </div>
 
-      <div className="field">
-        <label>
-          <input
-            type="checkbox"
-            checked={task.allowSpecificReviewer}
+      {task.type === 'notify' ? (
+        <div className="field">
+          <label htmlFor="task-message">Message</label>
+          <textarea
+            id="task-message"
+            rows={2}
+            value={String((task.config as { message?: unknown })?.message ?? '')}
             disabled={readOnly}
+            placeholder="Left empty, it says the step ran on the document."
             onChange={(e) =>
-              onTaskChange(task.key, { allowSpecificReviewer: e.target.checked })
+              onTaskChange(task.key, {
+                config: { ...task.config, message: e.target.value },
+              })
             }
-          />{' '}
-          Let the starter name a specific reviewer
-        </label>
-      </div>
+          />
+        </div>
+      ) : null}
 
+      {task.type === 'updateIndex' ? (
+        <div className="field">
+          <label>Set these values</label>
+          {fields.length === 0 ? (
+            <p className="small muted">This cabinet has no index fields.</p>
+          ) : null}
+          {configValues.map((v, i) => (
+            <div key={i} className="wf-clause wf-clause-pair">
+              <select
+                aria-label="Field"
+                value={v.fieldId}
+                disabled={readOnly}
+                onChange={(e) => setValueAt(i, { fieldId: e.target.value })}
+              >
+                {fields.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                aria-label="Value"
+                value={String(v.value ?? '')}
+                disabled={readOnly}
+                onChange={(e) => setValueAt(i, { value: e.target.value })}
+              />
+              {!readOnly ? (
+                <button
+                  className="danger"
+                  aria-label="Remove value"
+                  onClick={() =>
+                    onTaskChange(task.key, {
+                      config: {
+                        ...task.config,
+                        values: configValues.filter((_, j) => j !== i),
+                      },
+                    })
+                  }
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+          ))}
+          {!readOnly && fields.length > 0 ? (
+            <button
+              style={{ marginTop: 4 }}
+              onClick={() =>
+                onTaskChange(task.key, {
+                  config: {
+                    ...task.config,
+                    values: [...configValues, { fieldId: fields[0]!.id, value: '' }],
+                  },
+                })
+              }
+            >
+              Add value
+            </button>
+          ) : null}
+          <p className="small muted" style={{ margin: '4px 0 0' }}>
+            Written by the workflow, so a locked field is allowed — that is
+            usually the point. Setting a value here does not re-trigger
+            index-change workflows.
+          </p>
+        </div>
+      ) : null}
+
+      {automatic ? (
+        <p className="small muted">
+          This step runs by itself and moves straight on; it waits for nobody.
+          {task.type === 'notify'
+            ? ' Anyone chosen below is who it tells — with nobody chosen, it tells whoever filed the document.'
+            : ''}
+        </p>
+      ) : null}
+
+      {!automatic ? (
+        <div className="field">
+          <label>
+            <input
+              type="checkbox"
+              checked={task.allowSpecificReviewer}
+              disabled={readOnly}
+              onChange={(e) =>
+                onTaskChange(task.key, { allowSpecificReviewer: e.target.checked })
+              }
+            />{' '}
+            Let the starter name a specific reviewer
+          </label>
+        </div>
+      ) : null}
+
+      {showAudience ? (
+      <>
       <div className="field">
-        <label>Assign to roles</label>
+        <label>{task.type === 'notify' ? 'Tell these roles' : 'Assign to roles'}</label>
         <div className="wf-picker">
           {roles.length === 0 ? <p className="small muted">No roles.</p> : null}
           {roles.map((r) => (
@@ -211,7 +329,7 @@ export function Inspector({
       </div>
 
       <div className="field">
-        <label>Assign to users</label>
+        <label>{task.type === 'notify' ? 'Tell these users' : 'Assign to users'}</label>
         <div className="wf-picker">
           {users.map((u) => (
             <label key={u.id} className="small">
@@ -230,10 +348,13 @@ export function Inspector({
           ))}
         </div>
         <p className="small muted" style={{ margin: '4px 0 0' }}>
-          With nothing chosen the task is open to anyone who can see the
-          document.
+          {task.type === 'notify'
+            ? 'With nobody chosen it tells whoever filed the document.'
+            : 'With nothing chosen the task is open to anyone who can see the document.'}
         </p>
       </div>
+      </>
+      ) : null}
 
       {!readOnly ? (
         <button className="danger" onClick={onDelete}>

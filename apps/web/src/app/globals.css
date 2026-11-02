@@ -662,3 +662,7 @@ tbody tr[aria-selected='true'] {
 .wf-clause input {
   min-width: 0;
 }
+
+.wf-clause-pair {
+  grid-template-columns: 1fr 1fr auto;
+}

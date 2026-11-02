@@ -19,11 +19,21 @@ const TASK_LABELS: Record<string, string> = {
 };
 
 /**
- * Task types the rebuild has no handler for. Dokmee ran these through engines
- * it licensed; saying so on the node is better than letting someone design a
- * flow around a step that will stall.
+ * Task types the engine stops on, because each needs something this rebuild
+ * does not ship (workflow-engine.ts `NEEDS_ENGINE`). Saying so on the node is
+ * better than letting someone design a flow around a step that will halt the
+ * instance the first time a document reaches it.
  */
-export const UNIMPLEMENTED_TASKS = new Set(['rpa', 'email', 'signature']);
+export const UNIMPLEMENTED_TASKS = new Set([
+  'rpa',
+  'email',
+  'signature',
+  'stamp',
+  'clone',
+]);
+
+/** Task types the engine runs itself, with no to-do for anyone. */
+export const AUTOMATIC_TASKS = new Set(['notify', 'updateIndex', 'end']);
 
 export function TaskNode({ data, selected }: NodeProps) {
   const task = data as TaskNodeData;
@@ -43,8 +53,11 @@ export function TaskNode({ data, selected }: NodeProps) {
       </div>
       <div className="wf-node-name">{task.name || <em>Unnamed</em>}</div>
       <div className="wf-node-meta">
-        {assignees > 0 ? `${assignees} assignee${assignees === 1 ? '' : 's'}` : 'anyone'}
-        {task.allowSpecificReviewer ? ' · specific reviewer' : ''}
+        {AUTOMATIC_TASKS.has(task.type)
+          ? 'runs automatically'
+          : `${assignees > 0 ? `${assignees} assignee${assignees === 1 ? '' : 's'}` : 'anyone'}${
+              task.allowSpecificReviewer ? ' · specific reviewer' : ''
+            }`}
       </div>
       <Handle type="source" position={Position.Right} />
     </div>

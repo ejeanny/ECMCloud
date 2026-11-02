@@ -126,9 +126,11 @@ rather than inferred. Problems that would be rejected on save — an ambiguous
 pair of routings, a decision with no branches, a missing start — are shown on
 the canvas before the round trip. The trigger is edited beside it: start on a
 new document or on an index change, narrowed by conditions on index values,
-offering only the operators each field's type can answer. Behind it: design
-revisions with a publish step, role and user assignees, a per-user task inbox,
-and per-document instance history.
+offering only the operators each field's type can answer. `review`, `approval`
+and `decision` wait for a person; `notify`, `updateIndex` and `end` the engine
+runs itself and moves on, chaining until the flow reaches a step that waits.
+Behind it: design revisions with a publish step, role and user assignees, a
+per-user task inbox, and per-document instance history.
 
 **Retention** — rules with a period, a date field, criteria and an action;
 expiry preview before anything is deleted; notify / recycle / permanent delete.
@@ -165,8 +167,10 @@ fails with the specific reason it has none, rather than silently doing nothing:
 - Data extraction, auto-indexing, data export to external systems, RPA
 - AI search, AI summaries, AI file creation
 - Email ingest and delivery, DocuSign, SAML and Active Directory sync
-- Workflow task types that need an engine: `rpa`, `email` and `signature`. The
-  designer marks them, so a flow is not drawn around a step that would stall
+- Workflow task types that need an engine: `rpa`, `email`, `signature`,
+  `stamp` and `clone`. The designer marks them, and an instance reaching one
+  stops with the reason rather than waiting in an inbox for a person who
+  cannot help
 - Dokmee Capture, Hub and the Outlook add-in, and licensing
 
 The data model carries the columns these features need (`emailFrom`,

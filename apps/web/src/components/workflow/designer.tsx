@@ -441,6 +441,7 @@ export function WorkflowDesigner({
               edge={selectedEdgeObject}
               roles={assignees.data?.roles ?? []}
               users={assignees.data?.users ?? []}
+              fields={fields.data ?? []}
               onTaskChange={onTaskChange}
               onEdgeChange={onEdgeChange}
               onDelete={deleteSelected}

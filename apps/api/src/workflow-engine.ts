@@ -1,6 +1,6 @@
 import { Prisma, prisma } from '@ecm/db';
 import type { RestrictionClause, FieldType } from '@ecm/domain';
-import { compileClauses, fieldsFor } from './index-values.js';
+import { compileClauses, fieldsFor, setIndexValues } from './index-values.js';
 
 /**
  * Workflow engine.
@@ -61,7 +61,7 @@ export async function startInstance(
     },
   });
 
-  await createTodos(tx, instance.id, version.id, firstKey);
+  await enterTask(tx, instance.id, version.id, firstKey);
   return instance.id;
 }
 
@@ -89,18 +89,13 @@ export function firstTaskKey(
 }
 
 /** Creates one to-do per assignee of the task, or one unassigned to-do. */
-async function createTodos(
-  tx: Prisma.TransactionClient,
-  instanceId: string,
-  versionId: string,
-  taskKey: string,
-): Promise<void> {
-  const task = await tx.workflowTask.findFirst({
-    where: { versionId, key: taskKey },
-    include: { assignees: true },
-  });
-  if (!task) return;
+type TaskRow = Prisma.WorkflowTaskGetPayload<{ include: { assignees: true } }>;
 
+/** The users a task is addressed to: its named users plus its roles' members. */
+async function audienceOf(
+  tx: Prisma.TransactionClient,
+  task: TaskRow,
+): Promise<Set<string>> {
   const userIds = new Set<string>();
   for (const a of task.assignees) {
     if (a.userId) userIds.add(a.userId);
@@ -117,6 +112,15 @@ async function createTodos(
     });
     for (const m of members) userIds.add(m.userId);
   }
+  return userIds;
+}
+
+async function createTodos(
+  tx: Prisma.TransactionClient,
+  instanceId: string,
+  task: TaskRow,
+): Promise<void> {
+  const userIds = await audienceOf(tx, task);
 
   if (userIds.size === 0) {
     await tx.workflowTodo.create({
@@ -156,6 +160,210 @@ async function createTodos(
  * "anyone on the role" from "this named reviewer", and either way one answer
  * decides the step.
  */
+/** The task types that wait for a person. Everything else the engine runs. */
+const HUMAN_TASKS = new Set(['review', 'approval', 'decision']);
+
+/**
+ * Task types that need something this rebuild does not ship. An instance
+ * reaching one stops in `error` saying which engine is missing, rather than
+ * sitting in a to-do list forever waiting for a person who cannot help.
+ */
+const NEEDS_ENGINE: Record<string, string> = {
+  stamp: 'needs the stamp subsystem — Dokmee burned a stored image with Apryse',
+  signature: 'needs a signing provider; Dokmee used DocuSign',
+  email: 'needs an SMTP transport',
+  rpa: 'needs the RPA runner',
+  clone: 'needs a copy target, which the recovered task config does not carry',
+};
+
+/** A chain of automatic steps longer than this is a loop, not a design. */
+const AUTOMATIC_STEP_LIMIT = 50;
+
+/** Which routing out of a task is taken, given how the step was answered. */
+function nextFrom(
+  routings: ReadonlyArray<{ type: string; decision: string | null; toTaskKey: string | null }>,
+  decision: 'approve' | 'reject' | 'choose',
+  choice: string | null,
+) {
+  return (
+    routings.find((r) => {
+      if (decision === 'choose') return r.type === 'onDecision' && r.decision === choice;
+      if (decision === 'reject') return r.type === 'onReject';
+      return r.type === 'onApprove';
+    }) ?? routings.find((r) => r.type === 'always')
+  );
+}
+
+async function complete(
+  tx: Prisma.TransactionClient,
+  instanceId: string,
+): Promise<AdvanceResult> {
+  await tx.workflowInstance.update({
+    where: { id: instanceId },
+    data: { state: 'completed', currentTaskKey: null, finished: new Date() },
+  });
+  return { state: 'completed', taskKey: null };
+}
+
+async function halt(
+  tx: Prisma.TransactionClient,
+  instanceId: string,
+  reason: string,
+): Promise<AdvanceResult> {
+  await tx.workflowInstance.update({
+    where: { id: instanceId },
+    data: { state: 'error', error: reason, finished: new Date() },
+  });
+  return { state: 'error', taskKey: null };
+}
+
+/** `notify`: tell the task's audience, then carry on without waiting. */
+async function runNotify(
+  tx: Prisma.TransactionClient,
+  instanceId: string,
+  task: TaskRow,
+): Promise<void> {
+  const instance = await tx.workflowInstance.findUniqueOrThrow({
+    where: { id: instanceId },
+    select: {
+      node: { select: { id: true, name: true, cabinetId: true, createdById: true } },
+    },
+  });
+
+  const config = task.config as { message?: unknown } | null;
+  const message =
+    typeof config?.message === 'string' && config.message.trim()
+      ? config.message
+      : `"${task.name}" ran on ${instance.node.name}.`;
+
+  const audience = await audienceOf(tx, task);
+  // Addressed to nobody in particular, so tell whoever filed the document —
+  // a notification step that notifies no one is a step that does nothing.
+  if (audience.size === 0 && instance.node.createdById) {
+    audience.add(instance.node.createdById);
+  }
+  if (audience.size === 0) return;
+
+  await tx.notification.createMany({
+    data: [...audience].map((userId) => ({
+      userId,
+      type: 'workflow',
+      action: 'notified',
+      message,
+      entityId: instanceId,
+      cabinetId: instance.node.cabinetId,
+    })),
+  });
+}
+
+/** `updateIndex`: write the values named on the task, then carry on. */
+async function runUpdateIndex(
+  tx: Prisma.TransactionClient,
+  instanceId: string,
+  task: TaskRow,
+): Promise<string | null> {
+  const config = task.config as { values?: unknown } | null;
+  const raw = Array.isArray(config?.values) ? config.values : null;
+  if (!raw || raw.length === 0) {
+    return `"${task.name}" is an update-index step with no values configured.`;
+  }
+
+  const values = raw.filter(
+    (v): v is { fieldId: string; value: unknown } =>
+      typeof v === 'object' && v !== null && typeof (v as { fieldId?: unknown }).fieldId === 'string',
+  );
+  if (values.length !== raw.length) {
+    return `"${task.name}" has an update-index value with no field.`;
+  }
+
+  const instance = await tx.workflowInstance.findUniqueOrThrow({
+    where: { id: instanceId },
+    select: { node: { select: { id: true, cabinetId: true } } },
+  });
+
+  try {
+    // The helper, not the router's mutation: this writes no `workflowTrigger`
+    // job, so a workflow that sets an index value cannot re-trigger itself.
+    // `allowLocked` because a locked field is exactly the kind a workflow owns
+    // and a user must not edit by hand.
+    await setIndexValues(tx, instance.node.cabinetId, instance.node.id, values as never, {
+      allowLocked: true,
+    });
+  } catch (error) {
+    return `"${task.name}" could not write its index values: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+  }
+  return null;
+}
+
+/**
+ * Enter a task: run it if the engine owns it, or wait if a person does.
+ *
+ * Without this every task type created a to-do and waited, so a `notify` step
+ * sat in someone's inbox instead of notifying them and an `end` step never
+ * ended anything. Automatic steps chain until the flow reaches one that waits,
+ * finishes, or fails.
+ */
+async function enterTask(
+  tx: Prisma.TransactionClient,
+  instanceId: string,
+  versionId: string,
+  startKey: string,
+): Promise<AdvanceResult> {
+  let key: string | null = startKey;
+
+  for (let step = 0; step < AUTOMATIC_STEP_LIMIT; step += 1) {
+    if (!key) return complete(tx, instanceId);
+
+    const task: TaskRow | null = await tx.workflowTask.findFirst({
+      where: { versionId, key },
+      include: { assignees: true },
+    });
+    if (!task) {
+      return halt(tx, instanceId, `The design has no task "${key}".`);
+    }
+
+    if (HUMAN_TASKS.has(task.type)) {
+      await tx.workflowInstance.update({
+        where: { id: instanceId },
+        data: { currentTaskKey: key },
+      });
+      await createTodos(tx, instanceId, task);
+      return { state: 'running', taskKey: key };
+    }
+
+    if (task.type === 'end') return complete(tx, instanceId);
+
+    const missing = NEEDS_ENGINE[task.type];
+    if (missing) return halt(tx, instanceId, `"${task.name}" ${missing}.`);
+
+    if (task.type === 'notify') {
+      await runNotify(tx, instanceId, task);
+    } else if (task.type === 'updateIndex') {
+      const problem = await runUpdateIndex(tx, instanceId, task);
+      if (problem) return halt(tx, instanceId, problem);
+    } else {
+      return halt(tx, instanceId, `No handler for task type "${task.type}".`);
+    }
+
+    // An automatic step answers itself, so it leaves by the approve path.
+    const routings = await tx.workflowRouting.findMany({
+      where: { versionId, fromTaskKey: key },
+      orderBy: { order: 'asc' },
+    });
+    const next = nextFrom(routings, 'approve', null);
+    if (!next || next.toTaskKey === null) return complete(tx, instanceId);
+    key = next.toTaskKey;
+  }
+
+  return halt(
+    tx,
+    instanceId,
+    `Stopped after ${AUTOMATIC_STEP_LIMIT} automatic steps without reaching one that waits — the design loops.`,
+  );
+}
+
 export async function advance(
   tx: Prisma.TransactionClient,
   instanceId: string,
@@ -175,31 +383,13 @@ export async function advance(
   const routings = instance.version.routings.filter(
     (r) => r.fromTaskKey === instance.currentTaskKey,
   );
-
-  const next =
-    routings.find((r) => {
-      if (decision === 'choose') return r.type === 'onDecision' && r.decision === choice;
-      if (decision === 'reject') return r.type === 'onReject';
-      return r.type === 'onApprove';
-    }) ?? routings.find((r) => r.type === 'always');
+  const next = nextFrom(routings, decision, choice);
 
   // No matching routing ends the instance; a rejection with no reject edge
   // completes rather than stalling, which is what "no further step" means.
-  if (!next || next.toTaskKey === null) {
-    await tx.workflowInstance.update({
-      where: { id: instanceId },
-      data: { state: 'completed', currentTaskKey: null, finished: new Date() },
-    });
-    return { state: 'completed', taskKey: null };
-  }
+  if (!next || next.toTaskKey === null) return complete(tx, instanceId);
 
-  await tx.workflowInstance.update({
-    where: { id: instanceId },
-    data: { currentTaskKey: next.toTaskKey },
-  });
-  await createTodos(tx, instanceId, instance.versionId, next.toTaskKey);
-
-  return { state: 'running', taskKey: next.toTaskKey };
+  return enterTask(tx, instanceId, instance.versionId, next.toTaskKey);
 }
 
 /**
