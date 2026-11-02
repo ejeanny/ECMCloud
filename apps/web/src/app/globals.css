@@ -302,3 +302,169 @@ tbody tr[aria-selected='true'] {
     padding: 16px;
   }
 }
+
+/* --- document viewer ---------------------------------------------------- */
+
+.viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+
+.viewer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.viewer-toolbar-second {
+  background: var(--surface-2);
+}
+
+.viewer-title {
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.viewer-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.viewer-selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
+
+.viewer-body {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.viewer-outline {
+  width: 220px;
+  flex: none;
+  overflow: auto;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.viewer-outline-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--text);
+  padding: 3px 4px;
+}
+
+.viewer-outline-link:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.viewer-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  /* A mid grey behind the page, so a white page reads as paper and the edge of
+     a scanned page with a white margin is still visible. */
+  background: #4a4f57;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.viewer-page {
+  position: relative;
+  flex: none;
+  background: #fff;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
+}
+
+.viewer-page canvas {
+  display: block;
+}
+
+.viewer-page-number {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #8d939c;
+  font: 600 14px/1 system-ui, sans-serif;
+}
+
+/* PDF.js positions transparent spans over the glyphs so the text is
+   selectable; the glyphs themselves are painted on the canvas below. */
+.viewer-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-align: initial;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+}
+
+.viewer-text-layer span,
+.viewer-text-layer br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+
+.viewer-text-layer ::selection {
+  background: rgb(31 95 208 / 35%);
+}
+
+.viewer-overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.viewer-search-hit {
+  fill: #ffb300;
+  opacity: 0.38;
+  mix-blend-mode: multiply;
+}
+
+.viewer-annotation-selected {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}

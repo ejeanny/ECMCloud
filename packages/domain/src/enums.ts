@@ -139,6 +139,10 @@ export const JOB_KINDS = [
   'recycle',
   'aiSummary',
   'rpa',
+  /// Merge a document's annotations into a produced PDF (Dokmee:
+  /// `BurnAnnotationsToFile`). Declared but not implemented — see
+  /// PDF-VIEWER.md §7; it needs a PDF writer, not a migration.
+  'burnAnnotations',
 ] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 

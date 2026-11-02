@@ -1,5 +1,6 @@
 import { router } from '../trpc.js';
 import { auditRouter, jobRouter, notificationRouter, retentionRouter } from './admin.js';
+import { annotationRouter } from './annotation.js';
 import { cabinetRouter } from './cabinet.js';
 import { indexFieldRouter } from './index-field.js';
 import { nodeRouter } from './node.js';
@@ -33,6 +34,7 @@ export const appRouter = router({
   notification: notificationRouter,
   job: jobRouter,
   workflow: workflowRouter,
+  annotation: annotationRouter,
 });
 
 export type AppRouter = typeof appRouter;

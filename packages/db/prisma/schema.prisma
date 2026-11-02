@@ -58,6 +58,7 @@ model User {
   favorites        Favorite[]
   recents          Recent[]
   notes            FileNote[]
+  annotations      Annotation[]
   versions         NodeVersion[]
   checkouts        Checkout[]
   auditRecords     AuditRecord[]
@@ -423,6 +424,7 @@ model Node {
   versions    NodeVersion[]
   checkout    Checkout?
   notes       FileNote[]
+  annotations Annotation[]
   favorites   Favorite[]
   recents     Recent[]
   auditRecords AuditRecord[]
@@ -889,4 +891,61 @@ model SystemSetting {
   modified DateTime @updatedAt
 
   @@map("system_setting")
+}
+
+/// A markup on a document, stored beside it rather than inside it.
+///
+/// Dokmee kept one opaque `AnnotationsData` blob per file plus a
+/// `BurnedAnnotationList`; this is a row per annotation instead, so an author,
+/// a date and a page are queryable and a single markup can be revoked without
+/// rewriting everyone else's. `xfdfKind` and the geometry columns carry exactly
+/// what XFDF carries (PDF-VIEWER.md §4), so `annotation.exportXfdf` is an
+/// assembly of rows and not a lossy translation — Acrobat reads the result.
+///
+/// `name` is XFDF's own identifier: the viewer generates it, sends it back on
+/// every edit, and it is unique per document so an edit cannot land on another
+/// document's annotation.
+model Annotation {
+  id     String @id @default(uuid()) @db.Uuid
+  nodeId String @db.Uuid
+  /// XFDF `name`.
+  name   String @db.VarChar(120)
+
+  /// One of the XFDF element names: highlight, ink, text, square, …
+  kind String @db.VarChar(20)
+  /// 0-based, as XFDF counts pages.
+  page Int
+
+  /// PDF user space, points, origin bottom-left. Never pixels: a stored
+  /// annotation must not depend on the zoom it was drawn at.
+  x1 Float
+  y1 Float
+  x2 Float
+  y2 Float
+
+  color   String @db.VarChar(7)
+  opacity Float  @default(1)
+  width   Float?
+
+  /// Text-markup quadpoints, 8 per marked line, and ink gestures. Both are
+  /// variable-length, so they are JSON rather than a child table nobody queries.
+  coords   Json?
+  gestures Json?
+
+  contents String?
+
+  /// Set once the markup has been merged into a produced PDF. A burned
+  /// annotation stays in the table as the record of what was applied.
+  burnedAt DateTime?
+
+  authorId String?  @db.Uuid
+  created  DateTime @default(now())
+  modified DateTime @updatedAt
+
+  node   Node  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@unique([nodeId, name])
+  @@index([nodeId, page])
+  @@map("annotation")
 }

@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "pdfjs:assets": "node scripts/copy-pdfjs-assets.mjs",
+    "predev": "npm run pdfjs:assets",
     "dev": "next dev",
+    "prebuild": "npm run pdfjs:assets",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit"
@@ -16,6 +19,7 @@
     "@trpc/react-query": "^11.0.0",
     "@trpc/server": "^11.0.0",
     "next": "^16.0.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "superjson": "^2.2.2"

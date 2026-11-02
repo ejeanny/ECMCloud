@@ -130,20 +130,31 @@ expiry preview before anything is deleted; notify / recycle / permanent delete.
 **Jobs** — one queue with claim-on-update, exponential backoff and a failure
 dashboard, standing in for Dokmee's thirteen Windows services.
 
+**Viewer** — PDF rendering in the browser on PDF.js, behind a seam that keeps
+the engine replaceable: page windowing for long scans, zoom and fit modes,
+rotation, a selectable text layer, search with hit highlighting, and the
+document outline. Annotations are highlight, underline, strike-out, freehand
+ink, rectangle and sticky note, drawn over the page in PDF user space so they
+survive any zoom — stored beside the document and exported as **XFDF**, which
+Acrobat and any other PDF tool can read. Adding, editing, deleting and burning
+are four separate privileges, as Dokmee had them.
+
 **Per-user** — notes, favourites, recents, notifications, settings, password
 change.
 
 ## What is deliberately not implemented
 
 These need the third-party engines Dokmee licensed (IRIS OCR, ISYS text
-extraction, Spire for Office formats, Apryse/PDFTron for rendering and page
+extraction, Spire for Office formats, Apryse/PDFTron for server-side page
 manipulation), or an external service. Each is a named job kind whose handler
-fails with that reason rather than silently doing nothing:
+fails with the specific reason it has none, rather than silently doing nothing:
 
 - OCR and zone OCR; text extraction beyond plain-text formats
 - Office/PDF conversion, print-version generation, page manipulation
-  (split, merge, extract, rotate, re-order), Bates labelling, annotations and
-  stamp burning
+  (split, merge, extract, rotate, re-order), Bates labelling, and burning
+  annotations or stamps into a produced file — annotations are displayed and
+  exported as XFDF, but merging them into the PDF needs a writer that can
+  build appearance streams
 - Data extraction, auto-indexing, data export to external systems, RPA
 - AI search, AI summaries, AI file creation
 - Email ingest and delivery, DocuSign, SAML and Active Directory sync

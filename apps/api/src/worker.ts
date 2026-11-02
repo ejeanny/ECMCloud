@@ -25,15 +25,23 @@ type Handler = (job: {
   payload: unknown;
 }) => Promise<void>;
 
-const NOT_IMPLEMENTED = new Set<JobKind>([
-  'ocr',
-  'dataExtraction',
-  'dataExport',
-  'aiSummary',
-  'rpa',
-  'autoIndex',
-  'email',
-]);
+/**
+ * Kinds that are deliberately declared without a handler, each with the reason
+ * it has none. A failed job should tell whoever reads it what is actually
+ * missing, rather than leaving them to guess at "not implemented".
+ */
+const NOT_IMPLEMENTED: Partial<Record<JobKind, string>> = {
+  ocr: 'needs an OCR engine — Dokmee licensed IRIS; Tesseract is the open equivalent',
+  autoIndex: 'needs the data-extraction engine it would index from',
+  dataExtraction: 'needs a data-extraction engine',
+  dataExport: 'needs a connector for the destination system',
+  email: 'needs an SMTP or IMAP transport',
+  aiSummary: 'needs a model endpoint',
+  rpa: 'needs the RPA runner',
+  burnAnnotations:
+    'needs a PDF writer that can build annotation appearance streams (PDF-VIEWER.md §7); ' +
+    'the markup is exportable as XFDF in the meantime',
+};
 
 const handlers: Partial<Record<JobKind, Handler>> = {
   /**
@@ -275,8 +283,9 @@ async function runOnce(): Promise<boolean> {
       data: {
         state: 'failed',
         finishedAt: new Date(),
-        lastError: NOT_IMPLEMENTED.has(job.kind as JobKind)
-          ? `Handler for "${job.kind}" is not implemented in this rebuild.`
+        lastError: NOT_IMPLEMENTED[job.kind as JobKind]
+          ? `Handler for "${job.kind}" is not implemented in this rebuild: ` +
+            `${NOT_IMPLEMENTED[job.kind as JobKind]}.`
           : `Unknown job kind "${job.kind}".`,
       },
     });

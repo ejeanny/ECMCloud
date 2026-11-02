@@ -266,6 +266,13 @@ Two consequences:
 
 ## 7. Building your own
 
+> **This is now built.** The viewer in `apps/web/src/components/viewer/` renders
+> with PDF.js behind the seam in `apps/web/src/lib/viewer/pdf.ts`; annotations
+> are stored by `apps/api/src/routers/annotation.ts` and serialised by
+> `packages/domain/src/xfdf.ts`. What follows is the reasoning it was built on,
+> kept because the engine-replacement argument still holds — and because the
+> long tail in the table below is still ahead.
+
 Replacing this is three separate problems with very different difficulty. Be
 honest about which is which.
 

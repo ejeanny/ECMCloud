@@ -29,11 +29,13 @@ export async function buildServer() {
   const app = Fastify({
     logger: { level: env().NODE_ENV === 'development' ? 'info' : 'warn' },
     bodyLimit: 1024 * 1024 * 64,
-    // A batched tRPC query puts every procedure name in one route parameter
-    // ("node.list,node.count,cabinet.byId,…"). Fastify's default limit of 100
-    // characters rejects that with 414, which the client then retries, so the
-    // explorer never loads.
-    maxParamLength: 5000,
+    routerOptions: {
+      // A batched tRPC query puts every procedure name in one route parameter
+      // ("node.list,node.count,cabinet.byId,…"). Fastify's default limit of 100
+      // characters rejects that with 414, which the client then retries, so the
+      // explorer never loads.
+      maxParamLength: 5000,
+    },
   });
 
   await app.register(cors, { origin: env().WEB_ORIGIN, credentials: true });

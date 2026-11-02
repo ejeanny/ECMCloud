@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { formatBytes, formatDate, formatIndexValue } from '@/lib/format';
 import { trpc } from '@/lib/trpc';
@@ -54,9 +55,19 @@ export function DocumentPanel({ nodeId, onChanged }: Props) {
 
       {node.kind === 'document' ? (
         <div className="row wrap" style={{ marginBottom: 12 }}>
-          <a className="pill" href={`/file/${node.id}`} target="_blank" rel="noreferrer">
-            View
-          </a>
+          {/* The viewer reads PDF. Dokmee converted everything to PDF first
+              (`loadAsPDF`), which needs the conversion engine this rebuild does
+              not ship — so anything else opens as its own bytes and lets the
+              browser decide, rather than handing PDF.js a file it cannot parse. */}
+          {node.ext?.toLowerCase() === 'pdf' ? (
+            <Link className="pill" href={`/v/${node.id}`}>
+              View &amp; annotate
+            </Link>
+          ) : (
+            <a className="pill" href={`/file/${node.id}`} target="_blank" rel="noreferrer">
+              View
+            </a>
+          )}
           <a className="pill" href={`/file/${node.id}/download`}>
             Download
           </a>
