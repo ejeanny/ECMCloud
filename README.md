@@ -239,6 +239,38 @@ behind it — and sets out the open-source path (PDF.js in the browser, `pdf-lib
 and `qpdf` on the server) with an honest account of what has no good
 replacement.
 
+## The dashboard
+
+`/` is a board of widgets, and it is where signing in lands. Each widget is a
+summary of a page that already existed — tasks, check-outs, notifications,
+recent documents, favourites, cabinets — plus two that are gated on a system
+right: Activity (`View_Audit_Log`) and Services (`Services_Logs`). The
+cabinet list moved to `/cabinets`.
+
+Widgets are dragged by the grip in their header, not by the card: a widget is
+full of links, and making the whole card the drag target would turn every
+attempt to open a document into a drag. The grip is also a focusable button —
+space picks a widget up, the arrow keys move it, space drops it — because
+drag-and-drop with no keyboard path is not an interface everyone can use.
+
+The layout is `{ id, size }[]`, not x/y coordinates: an ordered list re-flows
+by itself from three columns to one, and coordinates would have to be
+re-solved for every viewport. It is stored per user in the `workspace.settings`
+blob the API already keeps, so a board follows someone between machines, and
+writes are merged into that blob rather than replacing it. A stored layout
+outlives the code that wrote it, so `normalizeLayout` treats it as a
+preference applied over the widgets that exist now: unknown ids are dropped,
+widgets the user has lost the right to see are dropped, and widgets added to
+the application since are appended rather than silently never appearing.
+
+The Activity chart is inline SVG rather than a chart library — it is one
+series of bars. It plots the day's total and not a stack by action, because
+the endpoint breaks the count down into twenty-one actions and stacking those
+would mean cycling hues well past the point where anyone can tell them apart;
+the breakdown is one click away in the audit log, which is also the chart's
+table view. It draws at its measured pixel width rather than scaling a fixed
+`viewBox`, so the cap on how thick a bar may get is real pixels.
+
 ## The web UI
 
 Tailwind v4 and [shadcn/ui](https://ui.shadcn.com). There is no
