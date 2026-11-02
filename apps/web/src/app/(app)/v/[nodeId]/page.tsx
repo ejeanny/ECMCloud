@@ -1,7 +1,11 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
+import { Folder } from 'lucide-react';
+
 import { DocumentViewer } from '@/components/viewer/document-viewer';
+import { EmptyState, ErrorState } from '@/components/states';
+import { Skeleton } from '@/components/ui/skeleton';
 import { trpc } from '@/lib/trpc';
 
 /**
@@ -14,23 +18,32 @@ export default function ViewerPage() {
   const router = useRouter();
   const detail = trpc.node.byId.useQuery({ nodeId });
 
-  if (detail.isLoading) return <p className="muted">Loading…</p>;
-  if (detail.error) {
+  if (detail.isLoading) {
     return (
-      <p className="error" role="alert">
-        {detail.error.message}
-      </p>
+      <div className="space-y-2">
+        <Skeleton className="h-12 w-full rounded-xl" />
+        <Skeleton className="h-10 w-full rounded-xl" />
+        <Skeleton className="h-[26rem] w-full rounded-xl" />
+      </div>
     );
   }
+
+  if (detail.error) return <ErrorState message={detail.error.message} />;
   if (!detail.data) return null;
 
   const { node } = detail.data;
   if (node.kind !== 'document') {
-    return <p className="muted">A folder has nothing to display.</p>;
+    return (
+      <EmptyState
+        icon={<Folder />}
+        title="A folder has nothing to display"
+        description="Open a document to view and annotate it."
+      />
+    );
   }
 
   return (
-    <div style={{ height: 'calc(100vh - 120px)' }}>
+    <div className="h-[calc(100dvh-7rem)]">
       <DocumentViewer
         nodeId={nodeId}
         name={node.name}

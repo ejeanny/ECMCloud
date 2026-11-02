@@ -1,8 +1,48 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  Flame,
+  Highlighter,
+  Loader2,
+  Maximize,
+  MousePointer2,
+  Pencil,
+  RotateCw,
+  Search,
+  Square,
+  Strikethrough,
+  StickyNote,
+  Trash2,
+  Underline,
+  Upload,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { InlineError } from '@/components/states';
 import { openPdf, type OpenDocument, type OutlineItem, type SearchHit } from '@/lib/viewer/pdf';
 import { trpc } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
 import { ViewerPage, type DraftAnnotation, type Tool } from './viewer-page';
 import type { ViewerAnnotation } from './annotation-shapes';
 
@@ -16,14 +56,19 @@ type Zoom = number | 'fit-width' | 'fit-page';
 
 const COLORS = ['#ffd400', '#2bd48a', '#4aa3ff', '#ff6b6b', '#c084fc', '#111111'];
 
-const TOOLS: Array<{ id: Tool; label: string; hint: string }> = [
-  { id: 'select', label: 'Select', hint: 'Select text and annotations' },
-  { id: 'highlight', label: 'Highlight', hint: 'Select text to highlight it' },
-  { id: 'underline', label: 'Underline', hint: 'Select text to underline it' },
-  { id: 'strikeout', label: 'Strike', hint: 'Select text to strike it out' },
-  { id: 'ink', label: 'Draw', hint: 'Draw freehand' },
-  { id: 'square', label: 'Box', hint: 'Drag a rectangle' },
-  { id: 'note', label: 'Note', hint: 'Click to place a note' },
+const TOOLS: Array<{
+  id: Tool;
+  label: string;
+  hint: string;
+  icon: typeof MousePointer2;
+}> = [
+  { id: 'select', label: 'Select', hint: 'Select text and annotations', icon: MousePointer2 },
+  { id: 'highlight', label: 'Highlight', hint: 'Select text to highlight it', icon: Highlighter },
+  { id: 'underline', label: 'Underline', hint: 'Select text to underline it', icon: Underline },
+  { id: 'strikeout', label: 'Strike', hint: 'Select text to strike it out', icon: Strikethrough },
+  { id: 'ink', label: 'Draw', hint: 'Draw freehand', icon: Pencil },
+  { id: 'square', label: 'Box', hint: 'Drag a rectangle', icon: Square },
+  { id: 'note', label: 'Note', hint: 'Click to place a note', icon: StickyNote },
 ];
 
 /**
@@ -50,6 +95,9 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
   const [tool, setTool] = useState<Tool>('select');
   const [color, setColor] = useState(COLORS[0]!);
   const [selected, setSelected] = useState<string | null>(null);
+
+  const [pendingNote, setPendingNote] = useState<DraftAnnotation | null>(null);
+  const [noteText, setNoteText] = useState('');
 
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[] | null>(null);
@@ -202,15 +250,7 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
 
   // --- annotations ------------------------------------------------------
 
-  function onDraw(draft: DraftAnnotation) {
-    const contents =
-      draft.kind === 'text'
-        // A note with no text is just a marker nobody can read; ask for it at
-        // the moment of placing, which is when the user knows what to write.
-        ? (globalThis.prompt('Note') ?? '').trim()
-        : undefined;
-    if (draft.kind === 'text' && !contents) return;
-
+  function commit(draft: DraftAnnotation, contents?: string) {
     save.mutate({
       nodeId,
       annotations: [
@@ -228,6 +268,19 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
         },
       ],
     });
+  }
+
+  function onDraw(draft: DraftAnnotation) {
+    // A note with no text is just a marker nobody can read, so the text is
+    // asked for at the moment of placing — which is when the user knows what
+    // to write. A dialog rather than `window.prompt`: that one cannot be
+    // styled, cannot be dismissed predictably, and blocks the page.
+    if (draft.kind === 'text') {
+      setPendingNote(draft);
+      setNoteText('');
+      return;
+    }
+    commit(draft);
   }
 
   const byPage = useMemo(() => {
@@ -295,195 +348,299 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
 
   if (error) {
     return (
-      <div className="card error" role="alert">
-        <p>{error}</p>
-        <button onClick={onClose}>Close</button>
-      </div>
+      <Alert variant="destructive" className="max-w-xl">
+        <CircleAlert />
+        <AlertTitle>This document could not be opened</AlertTitle>
+        <AlertDescription>
+          <p>{error}</p>
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </AlertDescription>
+      </Alert>
     );
   }
 
   return (
-    <div className="viewer">
-      <div className="viewer-toolbar">
-        <strong className="viewer-title" title={name}>
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      {/* Primary toolbar: where you are in the document, and how big it is. */}
+      <div className="bg-card flex flex-wrap items-center gap-2 rounded-xl border p-2">
+        <strong className="max-w-[22ch] truncate text-sm" title={name}>
           {name}
         </strong>
 
-        <span className="viewer-group">
-          <button onClick={() => goTo(Math.max(0, current - 1))} title="Previous page">
-            ‹
-          </button>
-          <span className="small mono">
+        <Separator orientation="vertical" className="h-5" />
+
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Previous page"
+            disabled={current === 0}
+            onClick={() => goTo(Math.max(0, current - 1))}
+          >
+            <ChevronLeft />
+          </Button>
+          <span className="text-muted-foreground min-w-16 text-center font-mono text-xs tabular-nums">
             {doc ? `${current + 1} / ${doc.pageCount}` : '—'}
           </span>
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Next page"
+            disabled={!doc || current + 1 >= doc.pageCount}
             onClick={() => goTo(Math.min((doc?.pageCount ?? 1) - 1, current + 1))}
-            title="Next page"
           >
-            ›
-          </button>
-        </span>
+            <ChevronRight />
+          </Button>
+        </div>
 
-        <span className="viewer-group">
-          <button
+        <Separator orientation="vertical" className="h-5" />
+
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Zoom out"
             onClick={() => setZoom(Math.max(0.1, scale - 0.2))}
-            title="Zoom out"
           >
-            −
-          </button>
-          <span className="small mono">{Math.round(scale * 100)}%</span>
-          <button onClick={() => setZoom(Math.min(8, scale + 0.2))} title="Zoom in">
-            +
-          </button>
-          <button
+            <ZoomOut />
+          </Button>
+          <span className="text-muted-foreground min-w-12 text-center font-mono text-xs tabular-nums">
+            {Math.round(scale * 100)}%
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Zoom in"
+            onClick={() => setZoom(Math.min(8, scale + 0.2))}
+          >
+            <ZoomIn />
+          </Button>
+          <Button
+            variant={zoom === 'fit-width' ? 'secondary' : 'ghost'}
+            size="sm"
             onClick={() => setZoom('fit-width')}
-            style={zoom === 'fit-width' ? { borderColor: 'var(--accent)' } : undefined}
           >
             Fit width
-          </button>
-          <button
+          </Button>
+          <Button
+            variant={zoom === 'fit-page' ? 'secondary' : 'ghost'}
+            size="sm"
             onClick={() => setZoom('fit-page')}
-            style={zoom === 'fit-page' ? { borderColor: 'var(--accent)' } : undefined}
           >
+            <Maximize />
             Fit page
-          </button>
-          <button onClick={() => setRotation((r) => (r + 90) % 360)} title="Rotate">
-            ⟳
-          </button>
-        </span>
+          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Rotate"
+                onClick={() => setRotation((r) => (r + 90) % 360)}
+              >
+                <RotateCw />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Rotate a quarter turn</TooltipContent>
+          </Tooltip>
+        </div>
 
-        <span className="spacer" />
+        <span className="flex-1" />
 
-        <form onSubmit={runSearch} className="viewer-group">
-          <input
-            type="search"
-            placeholder="Find in document"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{ width: 170 }}
-          />
-          <button type="submit" disabled={searching}>
+        <form onSubmit={runSearch} className="flex items-center gap-1.5">
+          <div className="relative">
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+            <Input
+              type="search"
+              className="h-8 w-44 pl-8"
+              placeholder="Find in document"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <Button type="submit" size="sm" variant="outline" disabled={searching}>
+            {searching ? <Loader2 className="animate-spin" /> : null}
             {searching ? 'Searching…' : 'Find'}
-          </button>
+          </Button>
           {hits ? (
-            <span className="small muted">
-              {hits.length === 0 ? 'no matches' : `${hits.length} match${hits.length === 1 ? '' : 'es'}`}
+            <span className="text-muted-foreground text-xs whitespace-nowrap">
+              {hits.length === 0
+                ? 'no matches'
+                : `${hits.length} match${hits.length === 1 ? '' : 'es'}`}
             </span>
           ) : null}
         </form>
 
-        <button onClick={onClose}>Close</button>
+        <Button variant="ghost" size="icon-sm" aria-label="Close viewer" onClick={onClose}>
+          <X />
+        </Button>
       </div>
 
-      <div className="viewer-toolbar viewer-toolbar-second">
-        <span className="viewer-group">
-          {TOOLS.map((t) => (
-            <button
-              key={t.id}
-              title={t.hint}
-              onClick={() => setTool(t.id)}
-              style={
-                tool === t.id
-                  ? { borderColor: 'var(--accent)', color: 'var(--accent)' }
-                  : undefined
-              }
-            >
-              {t.label}
-            </button>
-          ))}
-        </span>
+      {/* Markup toolbar: what a drag or a click on the page will do. */}
+      <div className="bg-muted/50 flex flex-wrap items-center gap-2 rounded-xl border p-2">
+        <div className="flex items-center gap-1">
+          {TOOLS.map((t) => {
+            const Icon = t.icon;
+            return (
+              <Tooltip key={t.id}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={tool === t.id ? 'default' : 'ghost'}
+                    size="icon-sm"
+                    aria-label={t.label}
+                    aria-pressed={tool === t.id}
+                    onClick={() => setTool(t.id)}
+                  >
+                    <Icon />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t.hint}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
 
-        <span className="viewer-group">
+        <Separator orientation="vertical" className="h-5" />
+
+        <div className="flex items-center gap-1.5" role="group" aria-label="Annotation colour">
           {COLORS.map((c) => (
             <button
               key={c}
+              type="button"
               aria-label={`Colour ${c}`}
+              aria-pressed={color === c}
               onClick={() => setColor(c)}
-              className="viewer-swatch"
-              style={{
-                background: c,
-                outline: color === c ? '2px solid var(--accent)' : 'none',
-              }}
+              className={cn(
+                'size-5 cursor-pointer rounded-full border transition-[box-shadow]',
+                color === c
+                  ? 'ring-ring ring-offset-background ring-2 ring-offset-2'
+                  : 'border-border',
+              )}
+              style={{ background: c }}
             />
           ))}
-        </span>
+        </div>
 
-        <span className="spacer" />
+        <span className="flex-1" />
 
-        <span className="small muted">
+        <span className="text-muted-foreground text-xs">
           {total} annotation{total === 1 ? '' : 's'}
           {burnedCount > 0 ? `, ${burnedCount} burned in` : ''}
         </span>
-        <span className="viewer-group">
-          <button onClick={downloadXfdf} disabled={total === 0} title="Export as XFDF">
-            Export
-          </button>
-          <label className="pill" style={{ cursor: 'pointer' }}>
-            Import
-            <input
-              type="file"
-              accept=".xfdf,application/vnd.adobe.xfdf,text/xml"
-              onChange={uploadXfdf}
-              style={{ display: 'none' }}
-            />
-          </label>
-          <button
-            onClick={() => burn.mutate({ nodeId })}
-            disabled={total === burnedCount || burn.isPending}
-            title="Merge the annotations into the page content, keeping the original as a version"
+
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={downloadXfdf}
+            disabled={total === 0}
           >
-            Burn
-          </button>
-        </span>
+            Export
+          </Button>
+
+          {/* A label wrapping a hidden input, so importing is one click and
+              still uses the browser's own file picker. */}
+          <Button variant="outline" size="sm" asChild>
+            <label className="cursor-pointer">
+              <Upload />
+              Import
+              <input
+                type="file"
+                accept=".xfdf,application/vnd.adobe.xfdf,text/xml"
+                onChange={uploadXfdf}
+                className="hidden"
+              />
+            </label>
+          </Button>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => burn.mutate({ nodeId })}
+                disabled={total === burnedCount || burn.isPending}
+              >
+                {burn.isPending ? <Loader2 className="animate-spin" /> : <Flame />}
+                Burn
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Merge the annotations into the page content, keeping the original as a
+              version
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
-      {save.error ? <p className="error small">{save.error.message}</p> : null}
-      {remove.error ? <p className="error small">{remove.error.message}</p> : null}
-      {importXfdf.error ? <p className="error small">{importXfdf.error.message}</p> : null}
-      {burn.error ? <p className="error small">{burn.error.message}</p> : null}
+      {save.error ? <InlineError message={save.error.message} /> : null}
+      {remove.error ? <InlineError message={remove.error.message} /> : null}
+      {importXfdf.error ? <InlineError message={importXfdf.error.message} /> : null}
+      {burn.error ? <InlineError message={burn.error.message} /> : null}
+
       {burn.data ? (
-        <p className="small muted">
-          Burning {burn.data.annotations} annotation
-          {burn.data.annotations === 1 ? '' : 's'} into the page content (job{' '}
-          {burn.data.jobId.slice(0, 8)}). The file before the burn is kept as a
-          version — reload to see the result.
-        </p>
+        <Alert variant="info">
+          <Flame />
+          <AlertDescription>
+            Burning {burn.data.annotations} annotation
+            {burn.data.annotations === 1 ? '' : 's'} into the page content (job{' '}
+            <span className="font-mono">{burn.data.jobId.slice(0, 8)}</span>). The file
+            before the burn is kept as a version — reload to see the result.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {selectedAnnotation ? (
-        <div className="viewer-selection">
-          <span className="small">
-            <strong>{selectedAnnotation.kind}</strong>
-            {selectedAnnotation.author ? ` by ${selectedAnnotation.author}` : ''}
+        <div className="bg-primary/10 border-primary/40 flex flex-wrap items-center gap-2 rounded-xl border p-2">
+          <Badge variant="secondary">{selectedAnnotation.kind}</Badge>
+          <span className="text-sm">
+            {selectedAnnotation.author ? `by ${selectedAnnotation.author}` : ''}
             {selectedAnnotation.contents ? ` — ${selectedAnnotation.contents}` : ''}
           </span>
-          <span className="spacer" />
-          <button
-            className="danger"
+          <span className="flex-1" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
             disabled={!selectedAnnotation.canEdit || remove.isPending}
             onClick={() => remove.mutate({ nodeId, names: [selectedAnnotation.name] })}
           >
+            <Trash2 />
             Delete
-          </button>
-          <button onClick={() => setSelected(null)}>Deselect</button>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(null)}>
+            Deselect
+          </Button>
         </div>
       ) : null}
 
-      <div className="viewer-body">
+      <div className="flex min-h-0 flex-1 gap-2">
         {outline.length > 0 ? (
-          <nav className="viewer-outline">
-            <p className="small muted" style={{ margin: '0 0 6px' }}>
+          <nav
+            aria-label="Contents"
+            className="bg-card hidden w-56 flex-none overflow-auto rounded-xl border p-3 scrollbar-thin lg:block"
+          >
+            <p className="text-muted-foreground mb-1.5 text-[11px] font-semibold tracking-wider uppercase">
               Contents
             </p>
             <OutlineTree items={outline} onGo={goTo} />
           </nav>
         ) : null}
 
-        <div className="viewer-scroll" ref={scrollRef} onScroll={onScroll}>
+        {/* A mid grey behind the page, so a white page reads as paper and the
+            edge of a scanned page with a white margin is still visible. */}
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="flex min-w-0 flex-1 flex-col items-center gap-4 overflow-auto rounded-xl border bg-neutral-600 py-4 scrollbar-thin"
+        >
           {!doc ? (
-            <p className="muted" style={{ padding: 24 }}>
+            <div className="text-muted-foreground flex items-center gap-2 p-8 text-sm text-neutral-200">
+              <Loader2 className="size-4 animate-spin" />
               Loading{progress > 0 ? ` ${Math.round(progress * 100)}%` : ''}…
-            </p>
+            </div>
           ) : (
             sizes.map((size, index) => (
               <ViewerPage
@@ -507,6 +664,46 @@ export function DocumentViewer({ nodeId, name, onClose }: Props) {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={pendingNote !== null}
+        onOpenChange={(open) => !open && setPendingNote(null)}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add a note</DialogTitle>
+            <DialogDescription>
+              Shown to anyone who can see this document&apos;s annotations.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            id="note-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const text = noteText.trim();
+              if (!text || !pendingNote) return;
+              commit(pendingNote, text);
+              setPendingNote(null);
+            }}
+          >
+            <Textarea
+              autoFocus
+              rows={3}
+              value={noteText}
+              placeholder="What should this note say?"
+              onChange={(e) => setNoteText(e.target.value)}
+            />
+          </form>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingNote(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="note-form" disabled={!noteText.trim()}>
+              Add note
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -519,12 +716,14 @@ function OutlineTree({
   onGo: (page: number) => void;
 }) {
   return (
-    <ul style={{ listStyle: 'none', margin: 0, paddingLeft: 10 }}>
+    <ul className="m-0 list-none pl-2.5">
       {items.map((item, i) => (
         <li key={i}>
           <button
-            className="viewer-outline-link small"
+            type="button"
+            className="hover:text-primary w-full cursor-pointer truncate rounded-sm px-1 py-0.5 text-left text-xs disabled:cursor-default disabled:opacity-60"
             disabled={item.page === null}
+            title={item.title || '(untitled)'}
             onClick={() => item.page !== null && onGo(item.page)}
           >
             {item.title || '(untitled)'}

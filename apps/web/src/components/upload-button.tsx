@@ -1,6 +1,10 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { Loader2, Upload } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { InlineError } from '@/components/states';
 import { useChunkedUpload } from '@/lib/upload';
 import { trpc } from '@/lib/trpc';
 
@@ -50,20 +54,17 @@ export function UploadButton({ cabinetId, parentId, onUploaded, disabled }: Prop
           if (e.target.files?.length) void send(e.target.files);
         }}
       />
-      <button
-        className="primary"
+      <Button
+        size="sm"
         disabled={disabled || progress !== null}
         onClick={() => input.current?.click()}
       >
+        {progress ? <Loader2 className="animate-spin" /> : <Upload />}
         {progress
           ? `Uploading ${progress.name} (${progress.done}/${progress.total})`
           : 'Upload'}
-      </button>
-      {error ? (
-        <span className="error small" role="alert">
-          {error}
-        </span>
-      ) : null}
+      </Button>
+      {error ? <InlineError message={error} className="text-xs" /> : null}
     </>
   );
 }

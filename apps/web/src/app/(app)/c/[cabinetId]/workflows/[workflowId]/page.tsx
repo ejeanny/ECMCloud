@@ -2,10 +2,17 @@
 
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { ArrowLeft, Check, Info } from 'lucide-react';
+
 import { WorkflowDesigner } from '@/components/workflow/designer';
 import type { TriggerClause } from '@/components/workflow/trigger-editor';
+import { ErrorState } from '@/components/states';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { DesignRouting, DesignTask } from '@/lib/workflow/graph';
 import { trpc } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
 
 /**
  * The visual designer, replacing the Rappid/JointJS canvas Dokmee licensed.
@@ -30,13 +37,16 @@ export default function WorkflowDesignerPage() {
   );
   const list = trpc.workflow.list.useQuery({ cabinetId });
 
-  if (!isNew && existing.isLoading) return <p className="muted">Loading…</p>;
-  if (!isNew && existing.error) {
+  if (!isNew && existing.isLoading) {
     return (
-      <p className="error" role="alert">
-        {existing.error.message}
-      </p>
+      <div className="space-y-3">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-[26rem] w-full rounded-xl" />
+      </div>
     );
+  }
+  if (!isNew && existing.error) {
+    return <ErrorState message={existing.error.message} />;
   }
 
   const data = existing.data;
@@ -79,38 +89,49 @@ export default function WorkflowDesignerPage() {
   const readOnly = !isNew && data!.published;
 
   return (
-    <>
-      <div className="row" style={{ marginBottom: 10 }}>
-        <Link className="pill" href={`/c/${cabinetId}/workflows`}>
-          ← Workflows
-        </Link>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/c/${cabinetId}/workflows`}>
+            <ArrowLeft />
+            Workflows
+          </Link>
+        </Button>
+
         {summary && summary.revisions.length > 1 ? (
-          <span className="row small">
-            <span className="muted">Revision:</span>
-            {summary.revisions.map((r) => (
-              <Link
-                key={r.revision}
-                className="pill"
-                href={`/c/${cabinetId}/workflows/${workflowId}?revision=${r.revision}`}
-                style={
-                  data?.revision === r.revision
-                    ? { borderColor: 'var(--accent)', color: 'var(--accent)' }
-                    : undefined
-                }
-              >
-                r{r.revision}
-                {r.published ? ' ✓' : ''}
-              </Link>
-            ))}
-          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-muted-foreground text-xs">Revision</span>
+            {summary.revisions.map((r) => {
+              const active = data?.revision === r.revision;
+              return (
+                <Button
+                  key={r.revision}
+                  asChild
+                  size="xs"
+                  variant={active ? 'default' : 'outline'}
+                  className={cn('font-mono')}
+                >
+                  <Link
+                    href={`/c/${cabinetId}/workflows/${workflowId}?revision=${r.revision}`}
+                  >
+                    r{r.revision}
+                    {r.published ? <Check /> : null}
+                  </Link>
+                </Button>
+              );
+            })}
+          </div>
         ) : null}
       </div>
 
       {readOnly ? (
-        <p className="small muted">
-          This revision is published and is what running instances follow, so it
-          is shown read-only. Open the latest revision to make changes.
-        </p>
+        <Alert variant="info">
+          <Info />
+          <AlertDescription>
+            This revision is published and is what running instances follow, so it is
+            shown read-only. Open the latest revision to make changes.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       <WorkflowDesigner
@@ -122,6 +143,6 @@ export default function WorkflowDesignerPage() {
           router.replace(`/c/${cabinetId}/workflows/${saved}?revision=${revision}`);
         }}
       />
-    </>
+    </div>
   );
 }

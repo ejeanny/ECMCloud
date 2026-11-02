@@ -1,7 +1,16 @@
 'use client';
 
+import { Bell, BellOff, Check, CheckCheck } from 'lucide-react';
+
+import { PageHeader } from '@/components/page-header';
+import { EmptyState, ErrorState } from '@/components/states';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { formatDate } from '@/lib/format';
 import { trpc } from '@/lib/trpc';
+import { cn } from '@/lib/utils';
 
 export default function NotificationsPage() {
   const utils = trpc.useUtils();
@@ -14,51 +23,102 @@ export default function NotificationsPage() {
     onSuccess: () => utils.notification.list.invalidate(),
   });
 
-  if (list.isLoading) return <p className="muted">Loading…</p>;
-  if (list.error) return <p className="error">{list.error.message}</p>;
+  const unread = list.data?.unread ?? 0;
+
+  const header = (
+    <PageHeader
+      title="Notifications"
+      description="What the application and its workflows have told you."
+      actions={
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!unread || markAll.isPending}
+          onClick={() => markAll.mutate()}
+        >
+          <CheckCheck />
+          Mark all read
+          {unread > 0 ? (
+            <Badge variant="secondary" className="tabular-nums">
+              {unread}
+            </Badge>
+          ) : null}
+        </Button>
+      }
+    />
+  );
+
+  if (list.isLoading) {
+    return (
+      <>
+        {header}
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 w-full rounded-xl" />
+          ))}
+        </div>
+      </>
+    );
+  }
+  if (list.error) {
+    return (
+      <>
+        {header}
+        <ErrorState message={list.error.message} />
+      </>
+    );
+  }
 
   const items = list.data?.items ?? [];
 
   return (
     <>
-      <div className="row" style={{ marginBottom: 12 }}>
-        <h2 style={{ margin: 0 }}>Notifications</h2>
-        <span className="spacer" />
-        <button disabled={!list.data?.unread} onClick={() => markAll.mutate()}>
-          Mark all read ({list.data?.unread ?? 0})
-        </button>
-      </div>
+      {header}
 
-      {items.length === 0 ? <p className="muted">Nothing here.</p> : null}
-
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-        {items.map((n) => (
-          <li
-            key={n.id}
-            className="card"
-            style={{
-              marginBottom: 8,
-              borderLeft: n.isViewed ? undefined : '3px solid var(--accent)',
-            }}
-          >
-            <div className="row wrap">
-              <span className="pill">{n.type}</span>
-              <span className="pill">{n.action}</span>
-              <span className="spacer" />
-              <span className="small muted">{formatDate(n.created)}</span>
-              {!n.isViewed ? (
-                <button
-                  className="small"
-                  onClick={() => markViewed.mutate({ ids: [n.id] })}
-                >
-                  Mark read
-                </button>
-              ) : null}
-            </div>
-            <p style={{ margin: '6px 0 0' }}>{n.message}</p>
-          </li>
-        ))}
-      </ul>
+      {items.length === 0 ? (
+        <EmptyState
+          icon={<BellOff />}
+          title="Nothing here"
+          description="Workflow steps and shared documents show up on this page."
+        />
+      ) : (
+        <ul className="space-y-2">
+          {items.map((n) => (
+            <li key={n.id}>
+              <Card
+                className={cn(
+                  'gap-2 py-4',
+                  !n.isViewed && 'border-l-primary border-l-[3px]',
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-2 px-4">
+                  {!n.isViewed ? (
+                    <Bell className="text-primary size-3.5 shrink-0" />
+                  ) : null}
+                  <Badge variant="secondary">{n.type}</Badge>
+                  <Badge variant="outline">{n.action}</Badge>
+                  <span className="flex-1" />
+                  <span className="text-muted-foreground text-xs">
+                    {formatDate(n.created)}
+                  </span>
+                  {!n.isViewed ? (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      disabled={markViewed.isPending}
+                      onClick={() => markViewed.mutate({ ids: [n.id] })}
+                    >
+                      <Check />
+                      Mark read
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="px-4 text-sm">{n.message}</p>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }

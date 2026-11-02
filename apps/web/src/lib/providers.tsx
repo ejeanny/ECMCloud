@@ -2,7 +2,10 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { httpBatchLink } from '@trpc/client';
+import { ThemeProvider } from 'next-themes';
 import { useState, type ReactNode } from 'react';
+import { Toaster } from '@/components/ui/sonner';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { trpc } from './trpc';
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -43,7 +46,19 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <trpc.Provider client={client} queryClient={queryClient}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        {/* `class` rather than the media query, so the toggle in the sidebar
+            can override what the operating system asks for. */}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <TooltipProvider>{children}</TooltipProvider>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>
     </trpc.Provider>
   );
 }

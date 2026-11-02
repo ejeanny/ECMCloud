@@ -2,6 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Download, ExternalLink, Lock, LockOpen, Undo2, Upload } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { CheckInDialog } from './check-in-dialog';
 import { trpc } from '@/lib/trpc';
 
@@ -36,6 +40,11 @@ export function openHrefFor(node: { id: string; ext: string | null }): string {
  * and it cost four clicks and a panel: select the row, read the panel, press
  * Check out, and later press Check in — which could not even take the revised
  * file. Here it is one press on the row, and the row says who holds the lock.
+ *
+ * The buttons stay hidden until the row is hovered, selected, under the
+ * keyboard cursor, or holds focus — a grid of buttons is harder to read than a
+ * grid of names. They are icons with tooltips rather than labelled buttons so
+ * the column stays narrow enough to leave the file name room to be read.
  */
 export function RowActions({ node, me, readOnly, onChanged }: Props) {
   const router = useRouter();
@@ -56,57 +65,97 @@ export function RowActions({ node, me, readOnly, onChanged }: Props) {
   };
 
   return (
-    <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-      <button
-        className="small"
-        title={isPdf ? 'Open in the viewer' : 'Open the file'}
-        onClick={act(() => {
-          if (isPdf) router.push(`/v/${node.id}`);
-          else window.open(`/file/${node.id}`, '_blank', 'noopener');
-        })}
-      >
-        Open
-      </button>
+    <span
+      className="invisible inline-flex items-center gap-1 group-hover/row:visible group-aria-selected/row:visible group-data-[cursor=true]/row:visible focus-within:visible"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Open"
+            onClick={act(() => {
+              if (isPdf) router.push(`/v/${node.id}`);
+              else window.open(`/file/${node.id}`, '_blank', 'noopener');
+            })}
+          >
+            <ExternalLink />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{isPdf ? 'Open in the viewer' : 'Open the file'}</TooltipContent>
+      </Tooltip>
 
-      <a
-        className="small pill"
-        href={`/file/${node.id}/download`}
-        title="Download"
-        onClick={(e) => e.stopPropagation()}
-      >
-        Save
-      </a>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon-xs" asChild>
+            <a
+              href={`/file/${node.id}/download`}
+              aria-label="Download"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Download />
+            </a>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Download</TooltipContent>
+      </Tooltip>
 
       {theirs ? (
-        <span className="small muted" title={`Checked out by ${node.checkedOutBy}`}>
-          with {node.checkedOutBy}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-muted-foreground inline-flex size-7 items-center justify-center">
+              <Lock className="size-3.5" />
+              <span className="sr-only">Checked out by {node.checkedOutBy}</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Checked out by {node.checkedOutBy}</TooltipContent>
+        </Tooltip>
       ) : mine ? (
         <>
-          <button
-            className="small primary"
-            title="Check in, with or without a revised file"
-            onClick={act(() => setCheckingIn(true))}
-          >
-            Check in
-          </button>
-          <button
-            className="small"
-            title="Give up the lock and keep the document as it is"
-            onClick={act(() => cancel.mutate({ nodeId: node.id }))}
-          >
-            Cancel
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon-xs"
+                aria-label="Check in"
+                onClick={act(() => setCheckingIn(true))}
+              >
+                <Upload />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Check in, with or without a revised file</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Cancel check-out"
+                disabled={cancel.isPending}
+                onClick={act(() => cancel.mutate({ nodeId: node.id }))}
+              >
+                <Undo2 />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Give up the lock and keep the document as it is</TooltipContent>
+          </Tooltip>
         </>
       ) : (
-        <button
-          className="small"
-          disabled={readOnly || checkOut.isPending}
-          title="Take the lock so nobody else edits it"
-          onClick={act(() => checkOut.mutate({ nodeId: node.id }))}
-        >
-          Check out
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Check out"
+              disabled={readOnly || checkOut.isPending}
+              onClick={act(() => checkOut.mutate({ nodeId: node.id }))}
+            >
+              <LockOpen />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Take the lock so nobody else edits it</TooltipContent>
+        </Tooltip>
       )}
 
       {checkingIn ? (

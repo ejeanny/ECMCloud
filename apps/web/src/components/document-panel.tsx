@@ -2,6 +2,32 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import {
+  Download,
+  Eye,
+  History,
+  Loader2,
+  Lock,
+  LockOpen,
+  MessageSquare,
+  RotateCcw,
+  Trash2,
+  Undo2,
+  Upload,
+  Workflow,
+} from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { EmptyState, ErrorState, InlineError } from '@/components/states';
 import { formatBytes, formatDate, formatIndexValue } from '@/lib/format';
 import { CheckInDialog } from './check-in-dialog';
 import { trpc } from '@/lib/trpc';
@@ -11,11 +37,8 @@ interface Props {
   onChanged: () => void;
 }
 
-type Tab = 'index' | 'versions' | 'notes' | 'workflow';
-
 /** The right-hand detail panel: index values, versions, notes, workflow. */
 export function DocumentPanel({ nodeId, onChanged }: Props) {
-  const [tab, setTab] = useState<Tab>('index');
   const detail = trpc.node.byId.useQuery({ nodeId });
   const utils = trpc.useUtils();
   const touch = trpc.workspace.touchRecent.useMutation();
@@ -26,8 +49,25 @@ export function DocumentPanel({ nodeId, onChanged }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeId, detail.data?.node.kind]);
 
-  if (detail.isLoading) return <aside className="card muted">Loading…</aside>;
-  if (detail.error) return <aside className="card error">{detail.error.message}</aside>;
+  if (detail.isLoading) {
+    return (
+      <aside className="bg-card space-y-3 rounded-xl border p-5">
+        <Skeleton className="h-5 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </aside>
+    );
+  }
+
+  if (detail.error) {
+    return (
+      <aside>
+        <ErrorState message={detail.error.message} />
+      </aside>
+    );
+  }
+
   if (!detail.data) return null;
 
   const { node, index, checkedOutBy, versionCount, noteCount } = detail.data;
@@ -38,83 +78,116 @@ export function DocumentPanel({ nodeId, onChanged }: Props) {
   }
 
   return (
-    <aside className="card" style={{ position: 'sticky', top: 20 }}>
-      <h3 style={{ margin: '0 0 2px', wordBreak: 'break-word' }}>{node.name}</h3>
-      <p className="small muted" style={{ marginTop: 0 }}>
-        {node.kind === 'folder'
-          ? 'Folder'
-          : `${node.ext?.toUpperCase() ?? 'FILE'} · ${formatBytes(node.byteLength)}${
-              node.pages ? ` · ${node.pages} pages` : ''
-            }`}
-      </p>
+    <aside className="bg-card sticky top-5 overflow-hidden rounded-xl border">
+      <div className="space-y-2 p-4">
+        <h2 className="text-sm leading-snug font-semibold break-words">{node.name}</h2>
 
-      {checkedOutBy ? (
-        <p className="pill" style={{ marginBottom: 10 }}>
-          Checked out by {checkedOutBy}
-        </p>
-      ) : null}
-
-      {node.kind === 'document' ? (
-        <div className="row wrap" style={{ marginBottom: 12 }}>
-          {/* The viewer reads PDF. Dokmee converted everything to PDF first
-              (`loadAsPDF`), which needs the conversion engine this rebuild does
-              not ship — so anything else opens as its own bytes and lets the
-              browser decide, rather than handing PDF.js a file it cannot parse. */}
-          {node.ext?.toLowerCase() === 'pdf' ? (
-            <Link className="pill" href={`/v/${node.id}`}>
-              View &amp; annotate
-            </Link>
-          ) : (
-            <a className="pill" href={`/file/${node.id}`} target="_blank" rel="noreferrer">
-              View
-            </a>
-          )}
-          <a className="pill" href={`/file/${node.id}/download`}>
-            Download
-          </a>
-          <CheckOutControls
-            nodeId={node.id}
-            cabinetId={node.cabinetId}
-            name={node.name}
-            isCheckedOut={node.isCheckedOut}
-            onChanged={refresh}
-          />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="secondary">
+            {node.kind === 'folder' ? 'Folder' : (node.ext?.toUpperCase() ?? 'FILE')}
+          </Badge>
+          {node.kind === 'document' ? (
+            <Badge variant="outline" className="tabular-nums">
+              {formatBytes(node.byteLength)}
+            </Badge>
+          ) : null}
+          {node.pages ? (
+            <Badge variant="outline" className="tabular-nums">
+              {node.pages} pages
+            </Badge>
+          ) : null}
+          {checkedOutBy ? (
+            <Badge variant="warning">
+              <Lock />
+              {checkedOutBy}
+            </Badge>
+          ) : null}
         </div>
-      ) : null}
 
-      <div className="row small" style={{ marginBottom: 10 }}>
-        {(
-          [
-            ['index', 'Index'],
-            ['versions', `Versions (${versionCount})`],
-            ['notes', `Notes (${noteCount})`],
-            ['workflow', 'Workflow'],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            style={
-              tab === key
-                ? { borderColor: 'var(--accent)', color: 'var(--accent)' }
-                : undefined
-            }
-          >
-            {label}
-          </button>
-        ))}
+        {node.kind === 'document' ? (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {/* The viewer reads PDF. Dokmee converted everything to PDF first
+                (`loadAsPDF`), which needs the conversion engine this rebuild
+                does not ship — so anything else opens as its own bytes and lets
+                the browser decide, rather than handing PDF.js a file it cannot
+                parse. */}
+            {node.ext?.toLowerCase() === 'pdf' ? (
+              <Button asChild size="xs">
+                <Link href={`/v/${node.id}`}>
+                  <Eye />
+                  View &amp; annotate
+                </Link>
+              </Button>
+            ) : (
+              <Button asChild size="xs" variant="outline">
+                <a href={`/file/${node.id}`} target="_blank" rel="noreferrer">
+                  <Eye />
+                  View
+                </a>
+              </Button>
+            )}
+            <Button asChild size="xs" variant="outline">
+              <a href={`/file/${node.id}/download`}>
+                <Download />
+                Download
+              </a>
+            </Button>
+            <CheckOutControls
+              nodeId={node.id}
+              cabinetId={node.cabinetId}
+              name={node.name}
+              isCheckedOut={node.isCheckedOut}
+              onChanged={refresh}
+            />
+          </div>
+        ) : null}
       </div>
 
-      {tab === 'index' ? (
-        <IndexForm nodeId={node.id} fields={index} onSaved={refresh} />
-      ) : null}
-      {tab === 'versions' ? <Versions nodeId={node.id} onChanged={refresh} /> : null}
-      {tab === 'notes' ? <Notes nodeId={node.id} onChanged={refresh} /> : null}
-      {tab === 'workflow' ? <WorkflowHistory nodeId={node.id} /> : null}
+      <Separator />
 
-      <p className="small muted" style={{ marginTop: 14, marginBottom: 0 }}>
+      <Tabs defaultValue="index" className="gap-0">
+        <div className="px-4 pt-3">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="index">Index</TabsTrigger>
+            <TabsTrigger value="versions">
+              <History />
+              {versionCount}
+            </TabsTrigger>
+            <TabsTrigger value="notes">
+              <MessageSquare />
+              {noteCount}
+            </TabsTrigger>
+            <TabsTrigger value="workflow">
+              <Workflow />
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <ScrollArea className="max-h-[min(28rem,calc(100dvh-24rem))]">
+          <div className="p-4">
+            <TabsContent value="index">
+              <IndexForm nodeId={node.id} fields={index} onSaved={refresh} />
+            </TabsContent>
+            <TabsContent value="versions">
+              <Versions nodeId={node.id} onChanged={refresh} />
+            </TabsContent>
+            <TabsContent value="notes">
+              <Notes nodeId={node.id} onChanged={refresh} />
+            </TabsContent>
+            <TabsContent value="workflow">
+              <WorkflowHistory nodeId={node.id} />
+            </TabsContent>
+          </div>
+        </ScrollArea>
+      </Tabs>
+
+      <Separator />
+
+      <p className="text-muted-foreground p-4 text-xs">
         Created {formatDate(node.created)} · modified {formatDate(node.modified)}
-        {node.textExtractedAt ? ` · text extracted ${formatDate(node.textExtractedAt)}` : ''}
+        {node.textExtractedAt
+          ? ` · text extracted ${formatDate(node.textExtractedAt)}`
+          : ''}
       </p>
     </aside>
   );
@@ -139,21 +212,35 @@ function CheckOutControls({
 
   if (!isCheckedOut) {
     return (
-      <button className="pill" onClick={() => checkOut.mutate({ nodeId })}>
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={checkOut.isPending}
+        onClick={() => checkOut.mutate({ nodeId })}
+      >
+        {checkOut.isPending ? <Loader2 className="animate-spin" /> : <LockOpen />}
         Check out
-      </button>
+      </Button>
     );
   }
 
   return (
     <>
       {/* The dialog, not a bare mutation: check-in takes the revised file. */}
-      <button className="pill" onClick={() => setCheckingIn(true)}>
+      <Button size="xs" onClick={() => setCheckingIn(true)}>
+        <Upload />
         Check in
-      </button>
-      <button className="pill danger" onClick={() => cancel.mutate({ nodeId })}>
+      </Button>
+      <Button
+        size="xs"
+        variant="ghost"
+        className="text-destructive hover:text-destructive"
+        disabled={cancel.isPending}
+        onClick={() => cancel.mutate({ nodeId })}
+      >
+        <Undo2 />
         Cancel check-out
-      </button>
+      </Button>
       {checkingIn ? (
         <CheckInDialog
           nodeId={nodeId}
@@ -193,8 +280,15 @@ function IndexForm({
 
   const dirty = Object.keys(draft).length > 0;
 
+  if (fields.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm">This cabinet has no index fields.</p>
+    );
+  }
+
   return (
     <form
+      className="space-y-3"
       onSubmit={(event) => {
         event.preventDefault();
         save.mutate({
@@ -206,56 +300,48 @@ function IndexForm({
         });
       }}
     >
-      {fields.length === 0 ? (
-        <p className="small muted">This cabinet has no index fields.</p>
-      ) : null}
-
       {fields.map((f) => {
-        const current = draft[f.fieldId] ?? forInput(f.type, f.value);
+        const currentValue = draft[f.fieldId] ?? forInput(f.type, f.value);
         return (
-          <div className="field" key={f.fieldId}>
-            <label htmlFor={`f-${f.fieldId}`}>
+          <div className="space-y-1.5" key={f.fieldId}>
+            <Label htmlFor={`f-${f.fieldId}`} className="text-muted-foreground text-xs">
               {f.label}
-              {f.isRequired ? ' *' : ''}
-              {f.isLocked ? ' (locked)' : ''}
-            </label>
+              {f.isRequired ? <span className="text-destructive">*</span> : null}
+              {f.isLocked ? (
+                <Badge variant="outline" className="ml-1">
+                  <Lock />
+                  locked
+                </Badge>
+              ) : null}
+            </Label>
             {f.isLocked ? (
-              <p className="mono" style={{ margin: 0 }}>
-                {formatIndexValue(f.value)}
-              </p>
+              <p className="font-mono text-xs break-words">{formatIndexValue(f.value)}</p>
             ) : (
-              <input
+              <Input
                 id={`f-${f.fieldId}`}
                 type={inputTypeFor(f.type)}
-                value={current}
+                value={currentValue}
                 required={f.isRequired}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, [f.fieldId]: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, [f.fieldId]: e.target.value }))}
               />
             )}
           </div>
         );
       })}
 
-      {save.error ? (
-        <p className="error small" role="alert">
-          {save.error.message}
-        </p>
-      ) : null}
+      {save.error ? <InlineError message={save.error.message} /> : null}
 
-      {fields.length > 0 ? (
-        <div className="row">
-          <button className="primary" type="submit" disabled={!dirty || save.isPending}>
-            {save.isPending ? 'Saving…' : 'Save index'}
-          </button>
-          {dirty ? (
-            <button type="button" onClick={() => setDraft({})}>
-              Discard
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      <div className="flex items-center gap-2 pt-1">
+        <Button type="submit" size="sm" disabled={!dirty || save.isPending}>
+          {save.isPending ? <Loader2 className="animate-spin" /> : null}
+          {save.isPending ? 'Saving…' : 'Save index'}
+        </Button>
+        {dirty ? (
+          <Button type="button" size="sm" variant="ghost" onClick={() => setDraft({})}>
+            Discard
+          </Button>
+        ) : null}
+      </div>
     </form>
   );
 }
@@ -296,41 +382,67 @@ function Versions({ nodeId, onChanged }: { nodeId: string; onChanged: () => void
   const versions = trpc.version.list.useQuery({ nodeId });
   const revert = trpc.version.revert.useMutation({ onSuccess: onChanged });
 
-  if (versions.isLoading) return <p className="small muted">Loading…</p>;
-  if (versions.error) return <p className="error small">{versions.error.message}</p>;
+  if (versions.isLoading) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    );
+  }
+  if (versions.error) return <InlineError message={versions.error.message} />;
   if ((versions.data ?? []).length === 0) {
-    return <p className="small muted">No earlier versions.</p>;
+    return (
+      <EmptyState
+        className="border-0 px-0 py-4"
+        icon={<History />}
+        title="No earlier versions"
+        description="Checking a revised file in creates one."
+      />
+    );
   }
 
   return (
-    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+    <ul className="divide-y">
       {versions.data!.map((v) => (
-        <li key={v.id} style={{ borderBottom: '1px solid var(--border)', padding: '6px 0' }}>
-          <div className="row">
-            <strong className="mono">{v.label}</strong>
-            <span className="spacer" />
-            <a
-              className="pill"
-              href={`/file/${nodeId}/download?version=${v.id}`}
-              title={`Download version ${v.label}`}
-            >
-              Download
-            </a>
-            <button
-              className="small"
-              onClick={() => revert.mutate({ nodeId, versionId: v.id })}
-            >
-              Revert
-            </button>
+        <li key={v.id} className="space-y-1 py-2.5 first:pt-0">
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="font-mono">
+              {v.label}
+            </Badge>
+            <span className="flex-1" />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-xs" asChild>
+                  <a
+                    href={`/file/${nodeId}/download?version=${v.id}`}
+                    aria-label={`Download version ${v.label}`}
+                  >
+                    <Download />
+                  </a>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Download version {v.label}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Revert to version ${v.label}`}
+                  disabled={revert.isPending}
+                  onClick={() => revert.mutate({ nodeId, versionId: v.id })}
+                >
+                  <RotateCcw />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Make this the current content</TooltipContent>
+            </Tooltip>
           </div>
-          <p className="small muted" style={{ margin: 0 }}>
+          <p className="text-muted-foreground text-xs">
             {v.createdBy} · {formatDate(v.created)} · {formatBytes(v.byteLength)}
           </p>
-          {v.comment ? (
-            <p className="small" style={{ margin: 0 }}>
-              {v.comment}
-            </p>
-          ) : null}
+          {v.comment ? <p className="text-xs">{v.comment}</p> : null}
         </li>
       ))}
     </ul>
@@ -353,72 +465,100 @@ function Notes({ nodeId, onChanged }: { nodeId: string; onChanged: () => void })
   });
 
   return (
-    <>
+    <div className="space-y-3">
       <form
+        className="space-y-2"
         onSubmit={(event) => {
           event.preventDefault();
           if (text.trim()) add.mutate({ nodeId, notes: text });
         }}
       >
-        <textarea
+        <Textarea
           rows={3}
           placeholder="Add a note…"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <button className="primary" type="submit" disabled={!text.trim() || add.isPending}>
+        <Button type="submit" size="sm" disabled={!text.trim() || add.isPending}>
+          {add.isPending ? <Loader2 className="animate-spin" /> : null}
           Add note
-        </button>
+        </Button>
       </form>
 
-      {add.error ? <p className="error small">{add.error.message}</p> : null}
+      {add.error ? <InlineError message={add.error.message} /> : null}
 
-      <ul style={{ listStyle: 'none', padding: 0, marginTop: 10 }}>
-        {(notes.data ?? []).map((n) => (
-          <li key={n.id} style={{ borderTop: '1px solid var(--border)', padding: '6px 0' }}>
-            <div className="row small muted">
-              <span>{n.user.userName}</span>
-              <span>·</span>
-              <span>{formatDate(n.created)}</span>
-              <span className="spacer" />
-              <button className="danger" onClick={() => remove.mutate({ noteId: n.id })}>
-                Delete
-              </button>
-            </div>
-            <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{n.notes}</p>
-          </li>
-        ))}
-      </ul>
-    </>
+      {(notes.data ?? []).length === 0 ? (
+        <p className="text-muted-foreground text-sm">No notes yet.</p>
+      ) : (
+        <ul className="divide-y">
+          {(notes.data ?? []).map((n) => (
+            <li key={n.id} className="space-y-1 py-2.5">
+              <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                <span className="font-medium">{n.user.userName}</span>
+                <span aria-hidden>·</span>
+                <span>{formatDate(n.created)}</span>
+                <span className="flex-1" />
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Delete note"
+                  className="text-destructive hover:text-destructive"
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate({ noteId: n.id })}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+              <p className="text-sm whitespace-pre-wrap">{n.notes}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
 function WorkflowHistory({ nodeId }: { nodeId: string }) {
   const instances = trpc.workflow.instancesForNode.useQuery({ nodeId });
 
-  if (instances.isLoading) return <p className="small muted">Loading…</p>;
-  if (instances.error) return <p className="error small">{instances.error.message}</p>;
+  if (instances.isLoading) return <Skeleton className="h-16 w-full" />;
+  if (instances.error) return <InlineError message={instances.error.message} />;
   if ((instances.data ?? []).length === 0) {
-    return <p className="small muted">No workflow has run on this document.</p>;
+    return (
+      <EmptyState
+        className="border-0 px-0 py-4"
+        icon={<Workflow />}
+        title="No workflow has run"
+        description="A trigger or a manual start puts this document through one."
+      />
+    );
   }
 
   return (
-    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+    <ul className="divide-y">
       {instances.data!.map((instance) => (
-        <li
-          key={instance.id}
-          style={{ borderTop: '1px solid var(--border)', padding: '8px 0' }}
-        >
-          <div className="row">
-            <strong>{instance.workflow.name}</strong>
-            <span className="pill">{instance.state}</span>
+        <li key={instance.id} className="space-y-2 py-3 first:pt-0">
+          <div className="flex items-center gap-2">
+            <strong className="text-sm">{instance.workflow.name}</strong>
+            <Badge
+              variant={
+                instance.state === 'completed'
+                  ? 'success'
+                  : instance.state === 'cancelled'
+                    ? 'secondary'
+                    : 'outline'
+              }
+            >
+              {instance.state}
+            </Badge>
           </div>
-          <ol className="small" style={{ paddingLeft: 18, margin: '4px 0 0' }}>
+          <ol className="text-muted-foreground space-y-0.5 text-xs">
             {instance.todos.map((todo) => (
-              <li key={todo.id}>
-                {todo.task.name} — {todo.state}
-                {todo.decision ? ` (${todo.decision})` : ''}
-                {todo.assignedTo ? ` · ${todo.assignedTo.userName}` : ''}
+              <li key={todo.id} className="flex flex-wrap gap-x-1.5">
+                <span className="text-foreground">{todo.task.name}</span>
+                <span>— {todo.state}</span>
+                {todo.decision ? <span>({todo.decision})</span> : null}
+                {todo.assignedTo ? <span>· {todo.assignedTo.userName}</span> : null}
               </li>
             ))}
           </ol>

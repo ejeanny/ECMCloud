@@ -12,7 +12,7 @@ shipped artifacts and the local database, then re-implemented.
 packages/domain   privilege vocabulary, enums, Zod schemas, access evaluation
 packages/db       Prisma schema (PostgreSQL) + seed
 apps/api          Fastify + tRPC v11, blob repository, job worker, workflow engine
-apps/web          Next.js 16 App Router + tRPC client
+apps/web          Next.js 16 App Router + tRPC client, shadcn/ui on Tailwind v4
 ```
 
 ## Running it
@@ -210,6 +210,33 @@ members it touches, the XFDF annotation channel and the server-side operations
 behind it — and sets out the open-source path (PDF.js in the browser, `pdf-lib`
 and `qpdf` on the server) with an honest account of what has no good
 replacement.
+
+## The web UI
+
+Tailwind v4 and [shadcn/ui](https://ui.shadcn.com). There is no
+`tailwind.config.js`: the theme is the `@theme inline` block at the top of
+`apps/web/src/app/globals.css`, and the light and dark palettes are the CSS
+custom properties under `:root` and `.dark` below it. Dark mode is a class on
+`<html>` written by `next-themes`, so the toggle in the sidebar can override
+what the operating system asks for.
+
+shadcn components are source, not a dependency: they live in
+`apps/web/src/components/ui/` and are edited in place. `components.json`
+records the style (`new-york`), the aliases and the icon library, so
+`npx shadcn@latest add <component>` drops a new one in beside them.
+
+Above those sit a few application-level pieces, shared so that every module
+says the same thing the same way: `page-header.tsx` for a page's title and
+actions, `states.tsx` for loading, empty and error states, `pager.tsx` for
+paging a list, and `theme-toggle.tsx`.
+
+Three rules the pages follow. Tables that have to truncate a name use
+`table-fixed` with widths on every other column, because under the automatic
+layout the name column collapses instead. A destructive action asks in an
+`AlertDialog` rather than `window.confirm`, and prompts for a value in a
+`Dialog` rather than `window.prompt`. Colour is only ever a token
+(`text-muted-foreground`, `bg-primary`), never a literal, so dark mode needs
+no second pass.
 
 ## Design decisions that differ from Dokmee
 
