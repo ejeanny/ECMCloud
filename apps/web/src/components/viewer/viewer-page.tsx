@@ -247,7 +247,9 @@ export function ViewerPage({
 
   return (
     <div
-      className="viewer-page"
+      // A white sheet with a drop shadow, so a scanned page with white
+      // margins still reads as paper against the grey behind it.
+      className="relative flex-none bg-white shadow-[0_2px_10px_rgb(0_0_0/0.35)] [&>canvas]:block"
       data-page={index + 1}
       ref={hostRef}
       style={{ width: size.width, height: size.height }}
@@ -266,7 +268,7 @@ export function ViewerPage({
 
       {rendered ? (
         <svg
-          className="viewer-overlay"
+          className="absolute inset-0"
           width={size.width}
           height={size.height}
           style={{ pointerEvents: tool === 'select' ? 'auto' : 'none' }}
@@ -320,7 +322,11 @@ export function ViewerPage({
         </svg>
       ) : null}
 
-      {!rendered ? <span className="viewer-page-number">{index + 1}</span> : null}
+      {!rendered ? (
+        <span className="absolute inset-0 grid place-items-center text-sm font-semibold text-neutral-400">
+          {index + 1}
+        </span>
+      ) : null}
     </div>
   );
 }

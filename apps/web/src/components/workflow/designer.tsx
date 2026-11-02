@@ -14,7 +14,17 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Check, LayoutTemplate, Loader2, Plus, Rocket, Save, TriangleAlert } from 'lucide-react';
+
 import { WORKFLOW_TASK_TYPES, type RoutingType, type WorkflowTaskType } from '@ecm/domain';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { InlineError } from '@/components/states';
 import {
   START_NODE_ID,
   STOP_NODE_ID,
@@ -54,10 +64,10 @@ interface Props {
 
 /** How an edge is drawn, by the condition it carries. */
 const EDGE_STYLE: Record<RoutingType, { stroke: string; label: (d: string | null) => string }> = {
-  always: { stroke: 'var(--text-dim)', label: () => '' },
-  onApprove: { stroke: 'var(--ok)', label: () => 'approve' },
-  onReject: { stroke: 'var(--danger)', label: () => 'reject' },
-  onDecision: { stroke: 'var(--accent)', label: (d) => d || '(no choice)' },
+  always: { stroke: 'var(--muted-foreground)', label: () => '' },
+  onApprove: { stroke: 'var(--success)', label: () => 'approve' },
+  onReject: { stroke: 'var(--destructive)', label: () => 'reject' },
+  onDecision: { stroke: 'var(--primary)', label: (d) => d || '(no choice)' },
 };
 
 const edgeTypes: EdgeTypes = {};
@@ -163,6 +173,7 @@ export function WorkflowDesigner({
     setNodes((current) => [...current, node]);
     setSelectedNode(key);
     setSelectedEdge(null);
+    setPanel('selection');
     touched();
   }
 
@@ -231,18 +242,18 @@ export function WorkflowDesigner({
         const data = (e.data ?? { type: 'always', decision: null }) as RoutingEdgeData;
         const isStart = e.source === START_NODE_ID;
         const style = isStart
-          ? { stroke: 'var(--accent)', label: () => 'start' }
+          ? { stroke: 'var(--primary)', label: () => 'start' }
           : EDGE_STYLE[data.type] ?? EDGE_STYLE.always;
         const bad = problemIds.has(e.id);
         return {
           ...e,
           label: style.label(data.decision),
           labelStyle: { fill: style.stroke, fontSize: 11 },
-          labelBgStyle: { fill: 'var(--surface)' },
+          labelBgStyle: { fill: 'var(--card)' },
           labelBgPadding: [4, 2] as [number, number],
           animated: data.type === 'onDecision',
           style: {
-            stroke: bad ? 'var(--danger)' : style.stroke,
+            stroke: bad ? 'var(--destructive)' : style.stroke,
             strokeWidth: bad ? 2.5 : 1.5,
             strokeDasharray: bad ? '5 3' : undefined,
           },
@@ -255,7 +266,15 @@ export function WorkflowDesigner({
   const styledNodes = useMemo(
     () =>
       nodes.map((n) =>
-        problemIds.has(n.id) ? { ...n, className: 'wf-node-problem' } : n,
+        problemIds.has(n.id)
+          ? {
+              ...n,
+              // React Flow puts the class on its own wrapper, so the ring has
+              // to reach the card this component renders inside it.
+              className:
+                '[&>div]:border-destructive [&>div]:ring-2 [&>div]:ring-destructive/30',
+            }
+          : n,
       ),
     [nodes, problemIds],
   );
@@ -278,86 +297,135 @@ export function WorkflowDesigner({
   })();
 
   return (
-    <div className="wf-designer">
-      <div className="viewer-toolbar">
-        <input
+    <div className="flex h-[calc(100dvh-13rem)] min-h-[32rem] flex-col gap-2">
+      <div className="bg-card flex flex-wrap items-center gap-2 rounded-xl border p-2">
+        <Input
+          className="h-8 w-52"
           value={name}
           disabled={readOnly}
           placeholder="Workflow name"
+          aria-label="Workflow name"
           onChange={(e) => {
             setName(e.target.value);
             touched();
           }}
-          style={{ width: 220 }}
         />
-        <input
+        <Input
+          className="h-8 w-60"
           value={description}
           disabled={readOnly}
           placeholder="Description"
+          aria-label="Description"
           onChange={(e) => {
             setDescription(e.target.value);
             touched();
           }}
-          style={{ width: 240 }}
         />
+
         {initial.revision ? (
-          <span className="pill">
+          <Badge variant={initial.published ? 'success' : 'secondary'} className="font-mono">
             r{initial.revision}
             {initial.published ? ' · published' : ''}
-          </span>
+          </Badge>
         ) : null}
-        <span className="small muted">
+
+        <span className="text-muted-foreground hidden text-xs lg:block">
           {triggerSummary || 'started by hand only'}
         </span>
-        <span className="spacer" />
-        <button onClick={relayout} disabled={readOnly}>
-          Tidy up
-        </button>
-        <button
-          className="primary"
-          onClick={onSave}
-          disabled={readOnly || save.isPending || problems.length > 0 || !name.trim()}
-          title={problems.length > 0 ? 'Fix the problems listed below first' : undefined}
-        >
-          {save.isPending ? 'Saving…' : dirty ? 'Save revision' : 'Saved'}
-        </button>
+
+        <span className="flex-1" />
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="sm" onClick={relayout} disabled={readOnly}>
+              <LayoutTemplate />
+              Tidy up
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Lay the graph out again, left to right</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="sm"
+              onClick={onSave}
+              disabled={readOnly || save.isPending || problems.length > 0 || !name.trim()}
+            >
+              {save.isPending ? <Loader2 className="animate-spin" /> : <Save />}
+              {save.isPending ? 'Saving…' : dirty ? 'Save revision' : 'Saved'}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {problems.length > 0
+              ? 'Fix the problems listed below first'
+              : 'Saving always creates a new revision'}
+          </TooltipContent>
+        </Tooltip>
+
         {workflowId && initial.revision ? (
-          <button
-            onClick={() =>
-              publish.mutate({ cabinetId, workflowId, revision: initial.revision! })
-            }
-            disabled={readOnly || dirty || initial.published || publish.isPending}
-            title={dirty ? 'Save first' : 'Make this revision the one that runs'}
-          >
-            {initial.published ? 'Published' : 'Publish'}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  publish.mutate({ cabinetId, workflowId, revision: initial.revision! })
+                }
+                disabled={readOnly || dirty || initial.published || publish.isPending}
+              >
+                {initial.published ? <Check /> : <Rocket />}
+                {initial.published ? 'Published' : 'Publish'}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {dirty ? 'Save first' : 'Make this revision the one that runs'}
+            </TooltipContent>
+          </Tooltip>
         ) : null}
       </div>
 
-      <div className="viewer-toolbar viewer-toolbar-second">
-        <span className="small muted">Add:</span>
+      <div className="bg-muted/50 flex flex-wrap items-center gap-1.5 rounded-xl border p-2">
+        <span className="text-muted-foreground mr-1 inline-flex items-center gap-1 text-xs font-medium">
+          <Plus className="size-3.5" />
+          Add task
+        </span>
+        <Separator orientation="vertical" className="mr-1 h-5" />
         {WORKFLOW_TASK_TYPES.map((t) => (
-          <button key={t} disabled={readOnly} onClick={() => addTask(t)}>
+          <Button
+            key={t}
+            variant="outline"
+            size="xs"
+            disabled={readOnly}
+            onClick={() => addTask(t)}
+          >
             {t}
-          </button>
+          </Button>
         ))}
       </div>
 
-      {save.error ? <p className="error small">{save.error.message}</p> : null}
-      {publish.error ? <p className="error small">{publish.error.message}</p> : null}
+      {save.error ? <InlineError message={save.error.message} /> : null}
+      {publish.error ? <InlineError message={publish.error.message} /> : null}
 
       {problems.length > 0 ? (
-        <ul className="wf-problems">
-          {problems.map((p, i) => (
-            <li key={i} className="small">
-              {p.message}
-            </li>
-          ))}
-        </ul>
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertTitle>
+            {problems.length} problem{problems.length === 1 ? '' : 's'} to fix before
+            saving
+          </AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc space-y-0.5 pl-4">
+              {problems.map((p, i) => (
+                <li key={i}>{p.message}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
       ) : null}
 
-      <div className="wf-body">
-        <div className="wf-canvas">
+      <div className="flex min-h-0 flex-1 gap-2">
+        <div className="bg-muted/40 min-w-0 flex-1 overflow-hidden rounded-xl border">
           <ReactFlow
             nodes={styledNodes}
             edges={styledEdges}
@@ -395,35 +463,27 @@ export function WorkflowDesigner({
             fitView
             proOptions={{ hideAttribution: false }}
           >
-            <Background />
+            <Background gap={16} size={1} />
             <Controls />
             <MiniMap pannable zoomable />
           </ReactFlow>
         </div>
 
-        <div className="wf-side">
-          <div className="row small">
-            <button
-              onClick={() => setPanel('selection')}
-              style={
-                panel === 'selection'
-                  ? { borderColor: 'var(--accent)', color: 'var(--accent)' }
-                  : undefined
-              }
-            >
-              Selection
-            </button>
-            <button
-              onClick={() => setPanel('trigger')}
-              style={
-                panel === 'trigger'
-                  ? { borderColor: 'var(--accent)', color: 'var(--accent)' }
-                  : undefined
-              }
-            >
-              Trigger{triggerSummary ? ' •' : ''}
-            </button>
-          </div>
+        <div className="hidden w-80 shrink-0 flex-col gap-2 lg:flex">
+          <Tabs
+            value={panel}
+            onValueChange={(value) => setPanel(value as 'selection' | 'trigger')}
+          >
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="selection">Selection</TabsTrigger>
+              <TabsTrigger value="trigger">
+                Trigger
+                {triggerSummary ? (
+                  <span className="bg-primary size-1.5 rounded-full" aria-hidden />
+                ) : null}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
           {panel === 'trigger' ? (
             <TriggerEditor

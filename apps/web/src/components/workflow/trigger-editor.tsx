@@ -1,6 +1,22 @@
 'use client';
 
+import { Plus, Trash2 } from 'lucide-react';
+
 import { storageSlotFor, type FieldType } from '@ecm/domain';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
 
 export interface TriggerClause {
   fieldId: string;
@@ -124,176 +140,210 @@ export function TriggerEditor({ value, fields, readOnly, onChange }: Props) {
   }
 
   return (
-    <aside className="card wf-inspector">
-      <h3>Trigger</h3>
-      <p className="small muted" style={{ marginTop: 0 }}>
-        What starts this workflow without anyone asking. With neither box
-        ticked it runs only when someone starts it by hand.
-      </p>
-
-      <div className="field">
-        <label>
-          <input
-            type="checkbox"
-            checked={value.onNewDocument}
-            disabled={readOnly}
-            onChange={(e) => patch({ onNewDocument: e.target.checked })}
-          />{' '}
-          When a document is added
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={value.onIndexChanged}
-            disabled={readOnly}
-            onChange={(e) => patch({ onIndexChanged: e.target.checked })}
-          />{' '}
-          When its index values change
-        </label>
-      </div>
-
-      {!armed ? (
-        <p className="small muted">
-          Conditions below are kept, but nothing fires until one of these is
-          ticked.
+    <aside className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border">
+      <div className="space-y-0.5 px-4 pt-4 pb-3">
+        <h3 className="text-sm font-semibold">Trigger</h3>
+        <p className="text-muted-foreground text-xs">
+          What starts this workflow without anyone asking. With neither box ticked it runs
+          only when someone starts it by hand.
         </p>
-      ) : null}
+      </div>
+      <Separator />
 
-      <div className="field">
-        <label>Only if</label>
-        {fields.length === 0 ? (
-          <p className="small muted">This cabinet has no index fields to test.</p>
-        ) : null}
-
-        {value.clauses.length > 1 ? (
-          <div className="row small" style={{ marginBottom: 6 }}>
-            <label>
-              <input
-                type="radio"
-                name="combine"
-                checked={value.combine === 'and'}
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="space-y-4 p-4">
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-center gap-2 text-xs">
+              <Checkbox
+                checked={value.onNewDocument}
                 disabled={readOnly}
-                onChange={() => patch({ combine: 'and' })}
-              />{' '}
-              all of these
+                onCheckedChange={(checked) =>
+                  patch({ onNewDocument: checked === true })
+                }
+              />
+              <span>When a document is added</span>
             </label>
-            <label>
-              <input
-                type="radio"
-                name="combine"
-                checked={value.combine === 'or'}
+            <label className="flex cursor-pointer items-center gap-2 text-xs">
+              <Checkbox
+                checked={value.onIndexChanged}
                 disabled={readOnly}
-                onChange={() => patch({ combine: 'or' })}
-              />{' '}
-              any of these
+                onCheckedChange={(checked) =>
+                  patch({ onIndexChanged: checked === true })
+                }
+              />
+              <span>When its index values change</span>
             </label>
           </div>
-        ) : null}
 
-        {value.clauses.map((clause, i) => {
-          const field = byId.get(clause.fieldId) ?? fields[0];
-          if (!field) return null;
-          const operators = operatorsFor(field.type);
-          // Switching field can leave an operator the new type cannot answer.
-          const operator = operators.some((o) => o.id === clause.operator)
-            ? clause.operator
-            : operators[0]!.id;
+          {!armed ? (
+            <p className="text-muted-foreground text-xs">
+              Conditions below are kept, but nothing fires until one of these is ticked.
+            </p>
+          ) : null}
 
-          return (
-            <div key={i} className="wf-clause">
-              <select
-                aria-label="Field"
-                value={clause.fieldId}
+          <Separator />
+
+          <div className="space-y-2">
+            <Label>Only if</Label>
+
+            {fields.length === 0 ? (
+              <p className="text-muted-foreground text-xs">
+                This cabinet has no index fields to test.
+              </p>
+            ) : null}
+
+            {value.clauses.length > 1 ? (
+              <RadioGroup
+                className="flex gap-4"
+                value={value.combine}
                 disabled={readOnly}
-                onChange={(e) => {
-                  const next = byId.get(e.target.value);
-                  const allowed = next ? operatorsFor(next.type) : operators;
-                  setClause(i, {
-                    fieldId: e.target.value,
-                    operator: allowed.some((o) => o.id === operator)
-                      ? operator
-                      : allowed[0]!.id,
-                    value: '',
-                  });
-                }}
+                onValueChange={(next) => patch({ combine: next as 'and' | 'or' })}
               >
-                {fields.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
+                <label className="flex cursor-pointer items-center gap-2 text-xs">
+                  <RadioGroupItem value="and" id="combine-and" />
+                  <span>all of these</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-xs">
+                  <RadioGroupItem value="or" id="combine-or" />
+                  <span>any of these</span>
+                </label>
+              </RadioGroup>
+            ) : null}
 
-              <select
-                aria-label="Operator"
-                value={operator}
-                disabled={readOnly}
-                onChange={(e) => setClause(i, { operator: e.target.value })}
-              >
-                {operators.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {relabel(o.label, field.type)}
-                  </option>
-                ))}
-              </select>
+            {value.clauses.map((clause, i) => {
+              const field = byId.get(clause.fieldId) ?? fields[0];
+              if (!field) return null;
+              const operators = operatorsFor(field.type);
+              // Switching field can leave an operator the new type cannot answer.
+              const operator = operators.some((o) => o.id === clause.operator)
+                ? clause.operator
+                : operators[0]!.id;
 
-              {NO_VALUE.has(operator) ? (
-                <span className="small muted">—</span>
-              ) : field.type === 'boolean' ? (
-                <select
-                  aria-label="Value"
-                  value={String(clause.value ?? 'true')}
-                  disabled={readOnly}
-                  onChange={(e) => setClause(i, { value: e.target.value })}
+              return (
+                <div
+                  key={i}
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5"
                 >
-                  <option value="true">yes</option>
-                  <option value="false">no</option>
-                </select>
-              ) : (
-                <input
-                  aria-label="Value"
-                  type={operator === 'in' ? 'text' : inputTypeFor(field.type)}
-                  value={String(clause.value ?? '')}
-                  placeholder={operator === 'in' ? 'comma separated' : undefined}
-                  disabled={readOnly}
-                  onChange={(e) =>
-                    setClause(i, {
-                      value:
-                        operator === 'in'
-                          ? e.target.value.split(',').map((s) => s.trim()).filter(Boolean)
-                          : e.target.value,
-                    })
-                  }
-                />
-              )}
+                  <Select
+                    value={clause.fieldId}
+                    disabled={readOnly}
+                    onValueChange={(next) => {
+                      const nextField = byId.get(next);
+                      const allowed = nextField
+                        ? operatorsFor(nextField.type)
+                        : operators;
+                      setClause(i, {
+                        fieldId: next,
+                        operator: allowed.some((o) => o.id === operator)
+                          ? operator
+                          : allowed[0]!.id,
+                        value: '',
+                      });
+                    }}
+                  >
+                    <SelectTrigger size="sm" aria-label="Field">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {fields.map((f) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-              {!readOnly ? (
-                <button
-                  className="danger"
-                  aria-label="Remove condition"
-                  onClick={() =>
-                    patch({ clauses: value.clauses.filter((_, j) => j !== i) })
-                  }
-                >
-                  ×
-                </button>
-              ) : null}
-            </div>
-          );
-        })}
+                  <Select
+                    value={operator}
+                    disabled={readOnly}
+                    onValueChange={(next) => setClause(i, { operator: next })}
+                  >
+                    <SelectTrigger size="sm" aria-label="Operator">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {operators.map((o) => (
+                        <SelectItem key={o.id} value={o.id}>
+                          {relabel(o.label, field.type)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-        {!readOnly && fields.length > 0 ? (
-          <button onClick={addClause} style={{ marginTop: 6 }}>
-            Add condition
-          </button>
-        ) : null}
-      </div>
+                  {NO_VALUE.has(operator) ? (
+                    <span className="text-muted-foreground self-center text-xs">—</span>
+                  ) : field.type === 'boolean' ? (
+                    <Select
+                      value={String(clause.value ?? 'true')}
+                      disabled={readOnly}
+                      onValueChange={(next) => setClause(i, { value: next })}
+                    >
+                      <SelectTrigger size="sm" aria-label="Value">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="true">yes</SelectItem>
+                        <SelectItem value="false">no</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      aria-label="Value"
+                      className="h-8"
+                      type={operator === 'in' ? 'text' : inputTypeFor(field.type)}
+                      value={
+                        Array.isArray(clause.value)
+                          ? clause.value.join(', ')
+                          : String(clause.value ?? '')
+                      }
+                      placeholder={operator === 'in' ? 'comma separated' : undefined}
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        setClause(i, {
+                          value:
+                            operator === 'in'
+                              ? e.target.value
+                                  .split(',')
+                                  .map((s) => s.trim())
+                                  .filter(Boolean)
+                              : e.target.value,
+                        })
+                      }
+                    />
+                  )}
 
-      <p className="small muted">
-        A condition tests an index value on the document, so a workflow can be
-        narrowed to the invoices over a threshold rather than every file that
-        lands in the cabinet.
-      </p>
+                  {!readOnly ? (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Remove condition"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() =>
+                        patch({ clauses: value.clauses.filter((_, j) => j !== i) })
+                      }
+                    >
+                      <Trash2 />
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            })}
+
+            {!readOnly && fields.length > 0 ? (
+              <Button variant="outline" size="sm" onClick={addClause}>
+                <Plus />
+                Add condition
+              </Button>
+            ) : null}
+          </div>
+
+          <p className="text-muted-foreground text-xs">
+            A condition tests an index value on the document, so a workflow can be
+            narrowed to the invoices over a threshold rather than every file that lands in
+            the cabinet.
+          </p>
+        </div>
+      </ScrollArea>
     </aside>
   );
 }

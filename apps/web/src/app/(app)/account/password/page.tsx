@@ -2,6 +2,14 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { KeyRound, Loader2 } from 'lucide-react';
+
+import { PageHeader } from '@/components/page-header';
+import { InlineError } from '@/components/states';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { trpc } from '@/lib/trpc';
 
 export default function ChangePasswordPage() {
@@ -17,63 +25,70 @@ export default function ChangePasswordPage() {
   const mismatch = confirm.length > 0 && confirm !== newPassword;
 
   return (
-    <div style={{ maxWidth: 420 }}>
-      <h2>Change password</h2>
-      <p className="muted small">
-        Changing your password signs out your other sessions.
-      </p>
+    <div className="max-w-md">
+      <PageHeader
+        title="Change password"
+        description="Changing your password signs out your other sessions."
+      />
 
-      <form
-        className="card"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!mismatch) change.mutate({ currentPassword, newPassword });
-        }}
-      >
-        <div className="field">
-          <label htmlFor="current">Current password</label>
-          <input
-            id="current"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={currentPassword}
-            onChange={(e) => setCurrent(e.target.value)}
-          />
-        </div>
+      <Card>
+        <CardContent>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!mismatch) change.mutate({ currentPassword, newPassword });
+            }}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="current">Current password</Label>
+              <Input
+                id="current"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={currentPassword}
+                onChange={(e) => setCurrent(e.target.value)}
+              />
+            </div>
 
-        <div className="field">
-          <label htmlFor="new">New password (at least 10 characters)</label>
-          <input
-            id="new"
-            type="password"
-            autoComplete="new-password"
-            minLength={10}
-            required
-            value={newPassword}
-            onChange={(e) => setNew(e.target.value)}
-          />
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="new">New password</Label>
+              <Input
+                id="new"
+                type="password"
+                autoComplete="new-password"
+                minLength={10}
+                required
+                value={newPassword}
+                onChange={(e) => setNew(e.target.value)}
+              />
+              <p className="text-muted-foreground text-xs">At least 10 characters.</p>
+            </div>
 
-        <div className="field">
-          <label htmlFor="confirm">Confirm new password</label>
-          <input
-            id="confirm"
-            type="password"
-            autoComplete="new-password"
-            required
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm">Confirm new password</Label>
+              <Input
+                id="confirm"
+                type="password"
+                autoComplete="new-password"
+                required
+                aria-invalid={mismatch || undefined}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+              />
+            </div>
 
-        {mismatch ? <p className="error small">The two passwords differ.</p> : null}
-        {change.error ? <p className="error small">{change.error.message}</p> : null}
+            {mismatch ? <InlineError message="The two passwords differ." /> : null}
+            {change.error ? <InlineError message={change.error.message} /> : null}
 
-        <button className="primary" type="submit" disabled={change.isPending || mismatch}>
-          {change.isPending ? 'Saving…' : 'Change password'}
-        </button>
-      </form>
+            <Button type="submit" disabled={change.isPending || mismatch}>
+              {change.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
+              {change.isPending ? 'Saving…' : 'Change password'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

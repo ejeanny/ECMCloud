@@ -1,6 +1,25 @@
 'use client';
 
+import { Info, MousePointerClick, Plus, Trash2, TriangleAlert } from 'lucide-react';
+
 import { WORKFLOW_TASK_TYPES, ROUTING_TYPES, type RoutingType } from '@ecm/domain';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
+import { EmptyState } from '@/components/states';
 import type {
   DesignEdge,
   DesignNode,
@@ -29,6 +48,68 @@ const ROUTING_LABELS: Record<RoutingType, string> = {
   onDecision: 'On a choice',
 };
 
+/** The panel's own frame, so each branch below is just its contents. */
+function Panel({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <aside className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border">
+      <div className="space-y-0.5 px-4 pt-4 pb-3">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        {subtitle ? (
+          <p className="text-muted-foreground text-xs break-words">{subtitle}</p>
+        ) : null}
+      </div>
+      <Separator />
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="space-y-4 p-4">{children}</div>
+      </ScrollArea>
+    </aside>
+  );
+}
+
+/** A scrollable list of checkboxes — roles or users to address. */
+function Picker({
+  options,
+  selected,
+  readOnly,
+  emptyText,
+  onToggle,
+}: {
+  options: Array<{ id: string; label: string }>;
+  selected: string[];
+  readOnly: boolean;
+  emptyText: string;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="max-h-36 overflow-auto rounded-md border p-1 scrollbar-thin">
+      {options.length === 0 ? (
+        <p className="text-muted-foreground px-2 py-1.5 text-xs">{emptyText}</p>
+      ) : null}
+      {options.map((option) => (
+        <label
+          key={option.id}
+          className="hover:bg-accent flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-xs"
+        >
+          <Checkbox
+            checked={selected.includes(option.id)}
+            disabled={readOnly}
+            onCheckedChange={() => onToggle(option.id)}
+          />
+          <span className="min-w-0 truncate">{option.label}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
 /** The panel beside the canvas: whatever is selected, edited in place. */
 export function Inspector({
   node,
@@ -43,90 +124,96 @@ export function Inspector({
 }: Props) {
   if (edge?.source === START_NODE_ID) {
     return (
-      <aside className="card wf-inspector">
-        <h3>Start</h3>
-        <p className="small muted">
-          An instance begins at <strong>{edge.target}</strong>. Drag the Start
-          arrow to another task to begin there instead.
+      <Panel title="Start">
+        <p className="text-muted-foreground text-xs">
+          An instance begins at <strong className="text-foreground">{edge.target}</strong>.
+          Drag the Start arrow to another task to begin there instead.
         </p>
-        <p className="small muted">
-          This is marked rather than guessed because a rejection that sends the
-          document back to the first reviewer leaves every task with an incoming
-          arrow — and then there is nothing to guess from.
+        <p className="text-muted-foreground text-xs">
+          This is marked rather than guessed because a rejection that sends the document
+          back to the first reviewer leaves every task with an incoming arrow — and then
+          there is nothing to guess from.
         </p>
-      </aside>
+      </Panel>
     );
   }
 
   if (edge) {
     const data = (edge.data ?? { type: 'always', decision: null }) as RoutingEdgeData;
     return (
-      <aside className="card wf-inspector">
-        <h3>Routing</h3>
-        <p className="small muted" style={{ marginTop: 0 }}>
-          {edge.source} → {edge.target === STOP_NODE_ID ? 'Stop' : edge.target}
-        </p>
-
-        <div className="field">
-          <label htmlFor="routing-type">Taken when</label>
-          <select
-            id="routing-type"
+      <Panel
+        title="Routing"
+        subtitle={
+          <>
+            {edge.source} → {edge.target === STOP_NODE_ID ? 'Stop' : edge.target}
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <Label htmlFor="routing-type">Taken when</Label>
+          <Select
             value={data.type}
             disabled={readOnly}
-            onChange={(e) =>
-              onEdgeChange(edge.id, { type: e.target.value as RoutingType })
+            onValueChange={(value) =>
+              onEdgeChange(edge.id, { type: value as RoutingType })
             }
           >
-            {ROUTING_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {ROUTING_LABELS[t]}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="routing-type" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ROUTING_TYPES.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {ROUTING_LABELS[t]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {data.type === 'onDecision' ? (
-          <div className="field">
-            <label htmlFor="routing-decision">Choice</label>
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="routing-decision">Choice</Label>
+            <Input
               id="routing-decision"
               value={data.decision ?? ''}
               disabled={readOnly}
               placeholder="e.g. Send to legal"
               onChange={(e) => onEdgeChange(edge.id, { decision: e.target.value })}
             />
-            <p className="small muted" style={{ margin: '4px 0 0' }}>
-              Matched against the choice the reviewer picks, so it has to be
-              exactly the wording they are offered.
+            <p className="text-muted-foreground text-xs">
+              Matched against the choice the reviewer picks, so it has to be exactly the
+              wording they are offered.
             </p>
           </div>
         ) : null}
 
-        <p className="small muted">
+        <p className="text-muted-foreground text-xs">
           {data.type === 'always'
             ? 'Followed whenever no more specific routing matches.'
             : 'A more specific routing wins over Always.'}
         </p>
 
         {!readOnly ? (
-          <button className="danger" onClick={onDelete}>
+          <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={onDelete}>
+            <Trash2 />
             Delete routing
-          </button>
+          </Button>
         ) : null}
-      </aside>
+      </Panel>
     );
   }
 
   if (!node || node.type !== 'task') {
     return (
-      <aside className="card wf-inspector">
-        <h3>Nothing selected</h3>
-        <p className="small muted">
-          Pick a task or a routing to edit it. Drag from a task&apos;s right edge
-          to another task to route between them, or to <strong>Stop</strong> to
-          end the flow there.
-        </p>
-      </aside>
+      <Panel title="Nothing selected">
+        <EmptyState
+          className="border-0 px-0 py-2"
+          icon={<MousePointerClick />}
+          title="Pick a task or a routing"
+          description="Drag from a task’s right edge to another task to route between them, or to Stop to end the flow there."
+        />
+      </Panel>
     );
   }
 
@@ -140,7 +227,7 @@ export function Inspector({
   const showAudience = !automatic || task.type === 'notify';
 
   const configValues = Array.isArray((task.config as { values?: unknown })?.values)
-    ? ((task.config as { values: Array<{ fieldId: string; value: unknown }> }).values)
+    ? (task.config as { values: Array<{ fieldId: string; value: unknown }> }).values
     : [];
 
   function setValueAt(index: number, patch: Partial<{ fieldId: string; value: unknown }>) {
@@ -153,15 +240,13 @@ export function Inspector({
   }
 
   return (
-    <aside className="card wf-inspector">
-      <h3>Task</h3>
-      <p className="small muted mono" style={{ marginTop: 0 }}>
-        {task.key}
-      </p>
-
-      <div className="field">
-        <label htmlFor="task-name">Name</label>
-        <input
+    <Panel
+      title="Task"
+      subtitle={<span className="font-mono">{task.key}</span>}
+    >
+      <div className="space-y-2">
+        <Label htmlFor="task-name">Name</Label>
+        <Input
           id="task-name"
           value={task.name}
           disabled={readOnly}
@@ -169,35 +254,44 @@ export function Inspector({
         />
       </div>
 
-      <div className="field">
-        <label htmlFor="task-type">Type</label>
-        <select
-          id="task-type"
+      <div className="space-y-2">
+        <Label htmlFor="task-type">Type</Label>
+        <Select
           value={task.type}
           disabled={readOnly}
-          onChange={(e) =>
-            onTaskChange(task.key, { type: e.target.value as TaskNodeData['type'] })
+          onValueChange={(value) =>
+            onTaskChange(task.key, { type: value as TaskNodeData['type'] })
           }
         >
-          {WORKFLOW_TASK_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-              {UNIMPLEMENTED_TASKS.has(t) ? ' (no handler)' : ''}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="task-type" size="sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {WORKFLOW_TASK_TYPES.map((t) => (
+              <SelectItem key={t} value={t}>
+                {t}
+                {UNIMPLEMENTED_TASKS.has(t) ? (
+                  <Badge variant="outline">no handler</Badge>
+                ) : null}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {UNIMPLEMENTED_TASKS.has(task.type) ? (
-          <p className="small muted" style={{ margin: '4px 0 0' }}>
-            This rebuild has no handler for this type — Dokmee ran it through an
-            engine it licensed. An instance reaching it will stall.
-          </p>
+          <Alert variant="warning">
+            <TriangleAlert />
+            <AlertDescription>
+              This rebuild has no handler for this type — Dokmee ran it through an engine
+              it licensed. An instance reaching it will stall.
+            </AlertDescription>
+          </Alert>
         ) : null}
       </div>
 
       {task.type === 'notify' ? (
-        <div className="field">
-          <label htmlFor="task-message">Message</label>
-          <textarea
+        <div className="space-y-2">
+          <Label htmlFor="task-message">Message</Label>
+          <Textarea
             id="task-message"
             rows={2}
             value={String((task.config as { message?: unknown })?.message ?? '')}
@@ -213,35 +307,45 @@ export function Inspector({
       ) : null}
 
       {task.type === 'updateIndex' ? (
-        <div className="field">
-          <label>Set these values</label>
+        <div className="space-y-2">
+          <Label>Set these values</Label>
           {fields.length === 0 ? (
-            <p className="small muted">This cabinet has no index fields.</p>
+            <p className="text-muted-foreground text-xs">
+              This cabinet has no index fields.
+            </p>
           ) : null}
+
           {configValues.map((v, i) => (
-            <div key={i} className="wf-clause wf-clause-pair">
-              <select
-                aria-label="Field"
+            <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5">
+              <Select
                 value={v.fieldId}
                 disabled={readOnly}
-                onChange={(e) => setValueAt(i, { fieldId: e.target.value })}
+                onValueChange={(value) => setValueAt(i, { fieldId: value })}
               >
-                {fields.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-              <input
+                <SelectTrigger size="sm" aria-label="Field">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {fields.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
                 aria-label="Value"
+                className="h-8"
                 value={String(v.value ?? '')}
                 disabled={readOnly}
                 onChange={(e) => setValueAt(i, { value: e.target.value })}
               />
               {!readOnly ? (
-                <button
-                  className="danger"
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   aria-label="Remove value"
+                  className="text-destructive hover:text-destructive"
                   onClick={() =>
                     onTaskChange(task.key, {
                       config: {
@@ -251,14 +355,16 @@ export function Inspector({
                     })
                   }
                 >
-                  ×
-                </button>
+                  <Trash2 />
+                </Button>
               ) : null}
             </div>
           ))}
+
           {!readOnly && fields.length > 0 ? (
-            <button
-              style={{ marginTop: 4 }}
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() =>
                 onTaskChange(task.key, {
                   config: {
@@ -268,99 +374,93 @@ export function Inspector({
                 })
               }
             >
+              <Plus />
               Add value
-            </button>
+            </Button>
           ) : null}
-          <p className="small muted" style={{ margin: '4px 0 0' }}>
-            Written by the workflow, so a locked field is allowed — that is
-            usually the point. Setting a value here does not re-trigger
-            index-change workflows.
+
+          <p className="text-muted-foreground text-xs">
+            Written by the workflow, so a locked field is allowed — that is usually the
+            point. Setting a value here does not re-trigger index-change workflows.
           </p>
         </div>
       ) : null}
 
       {automatic ? (
-        <p className="small muted">
-          This step runs by itself and moves straight on; it waits for nobody.
-          {task.type === 'notify'
-            ? ' Anyone chosen below is who it tells — with nobody chosen, it tells whoever filed the document.'
-            : ''}
-        </p>
+        <Alert variant="info">
+          <Info />
+          <AlertDescription>
+            This step runs by itself and moves straight on; it waits for nobody.
+            {task.type === 'notify'
+              ? ' Anyone chosen below is who it tells — with nobody chosen, it tells whoever filed the document.'
+              : ''}
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {!automatic ? (
-        <div className="field">
-          <label>
-            <input
-              type="checkbox"
-              checked={task.allowSpecificReviewer}
-              disabled={readOnly}
-              onChange={(e) =>
-                onTaskChange(task.key, { allowSpecificReviewer: e.target.checked })
-              }
-            />{' '}
-            Let the starter name a specific reviewer
-          </label>
-        </div>
+        <label className="flex cursor-pointer items-start gap-2 text-xs">
+          <Checkbox
+            checked={task.allowSpecificReviewer}
+            disabled={readOnly}
+            onCheckedChange={(checked) =>
+              onTaskChange(task.key, { allowSpecificReviewer: checked === true })
+            }
+          />
+          <span>Let the starter name a specific reviewer</span>
+        </label>
       ) : null}
 
       {showAudience ? (
-      <>
-      <div className="field">
-        <label>{task.type === 'notify' ? 'Tell these roles' : 'Assign to roles'}</label>
-        <div className="wf-picker">
-          {roles.length === 0 ? <p className="small muted">No roles.</p> : null}
-          {roles.map((r) => (
-            <label key={r.id} className="small">
-              <input
-                type="checkbox"
-                checked={task.assigneeRoleIds.includes(r.id)}
-                disabled={readOnly}
-                onChange={() =>
-                  onTaskChange(task.key, {
-                    assigneeRoleIds: toggle(task.assigneeRoleIds, r.id),
-                  })
-                }
-              />{' '}
-              {r.name}
-            </label>
-          ))}
-        </div>
-      </div>
+        <>
+          <div className="space-y-2">
+            <Label>{task.type === 'notify' ? 'Tell these roles' : 'Assign to roles'}</Label>
+            <Picker
+              options={roles.map((r) => ({ id: r.id, label: r.name }))}
+              selected={task.assigneeRoleIds}
+              readOnly={readOnly}
+              emptyText="No roles."
+              onToggle={(id) =>
+                onTaskChange(task.key, {
+                  assigneeRoleIds: toggle(task.assigneeRoleIds, id),
+                })
+              }
+            />
+          </div>
 
-      <div className="field">
-        <label>{task.type === 'notify' ? 'Tell these users' : 'Assign to users'}</label>
-        <div className="wf-picker">
-          {users.map((u) => (
-            <label key={u.id} className="small">
-              <input
-                type="checkbox"
-                checked={task.assigneeUserIds.includes(u.id)}
-                disabled={readOnly}
-                onChange={() =>
-                  onTaskChange(task.key, {
-                    assigneeUserIds: toggle(task.assigneeUserIds, u.id),
-                  })
-                }
-              />{' '}
-              {u.userName}
-            </label>
-          ))}
-        </div>
-        <p className="small muted" style={{ margin: '4px 0 0' }}>
-          {task.type === 'notify'
-            ? 'With nobody chosen it tells whoever filed the document.'
-            : 'With nothing chosen the task is open to anyone who can see the document.'}
-        </p>
-      </div>
-      </>
+          <div className="space-y-2">
+            <Label>{task.type === 'notify' ? 'Tell these users' : 'Assign to users'}</Label>
+            <Picker
+              options={users.map((u) => ({ id: u.id, label: u.userName }))}
+              selected={task.assigneeUserIds}
+              readOnly={readOnly}
+              emptyText="No users."
+              onToggle={(id) =>
+                onTaskChange(task.key, {
+                  assigneeUserIds: toggle(task.assigneeUserIds, id),
+                })
+              }
+            />
+            <p className="text-muted-foreground text-xs">
+              {task.type === 'notify'
+                ? 'With nobody chosen it tells whoever filed the document.'
+                : 'With nothing chosen the task is open to anyone who can see the document.'}
+            </p>
+          </div>
+        </>
       ) : null}
 
       {!readOnly ? (
-        <button className="danger" onClick={onDelete}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          onClick={onDelete}
+        >
+          <Trash2 />
           Delete task
-        </button>
+        </Button>
       ) : null}
-    </aside>
+    </Panel>
   );
 }

@@ -1,433 +1,191 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/* next-themes writes `class="dark"` on <html>, so the dark variant keys off a
+   class rather than the media query. The OS preference still wins by default:
+   the provider is set to `defaultTheme="system"`. */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+}
+
 :root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #d9dde3;
-  --text: #15181d;
-  --text-dim: #5b6472;
-  --accent: #1f5fd0;
-  --accent-soft: #e8effc;
-  --danger: #b3261e;
-  --ok: #176b3a;
-  --radius: 8px;
-  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --radius: 0.625rem;
+
+  /* The system stack, deliberately: pulling a web font would make `next build`
+     need the network, and the application already looked like this. */
+  --app-font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  --app-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --background: oklch(0.985 0.002 247.839);
+  --foreground: oklch(0.21 0.034 264.665);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.034 264.665);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.034 264.665);
+  /* The blue the application has always used, carried across so the rebuild
+     still looks like itself. */
+  --primary: oklch(0.49 0.185 263.5);
+  --primary-foreground: oklch(0.985 0.002 247.839);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.279 0.041 260.031);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.52 0.035 257.417);
+  --accent: oklch(0.955 0.02 256.5);
+  --accent-foreground: oklch(0.42 0.17 263.5);
+  --destructive: oklch(0.55 0.2 27.325);
+  --destructive-foreground: oklch(0.985 0.002 247.839);
+  --success: oklch(0.52 0.12 160);
+  --success-foreground: oklch(0.985 0.002 247.839);
+  --warning: oklch(0.63 0.13 72);
+  --warning-foreground: oklch(0.21 0.034 264.665);
+  --border: oklch(0.915 0.012 255.508);
+  --input: oklch(0.915 0.012 255.508);
+  --ring: oklch(0.49 0.185 263.5);
+
+  --chart-1: oklch(0.49 0.185 263.5);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.52 0.12 160);
+  --chart-4: oklch(0.63 0.13 72);
+  --chart-5: oklch(0.55 0.2 27.325);
+
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.21 0.034 264.665);
+  --sidebar-primary: oklch(0.49 0.185 263.5);
+  --sidebar-primary-foreground: oklch(0.985 0.002 247.839);
+  --sidebar-accent: oklch(0.955 0.02 256.5);
+  --sidebar-accent-foreground: oklch(0.42 0.17 263.5);
+  --sidebar-border: oklch(0.915 0.012 255.508);
+  --sidebar-ring: oklch(0.49 0.185 263.5);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg: #14171c;
-    --surface: #1b1f26;
-    --surface-2: #22272f;
-    --border: #2f363f;
-    --text: #e7eaef;
-    --text-dim: #9aa4b2;
-    --accent: #6fa0f5;
-    --accent-soft: #1d2a3f;
-    --danger: #f2b8b5;
-    --ok: #7fd1a0;
+.dark {
+  --background: oklch(0.185 0.029 264.3);
+  --foreground: oklch(0.96 0.005 247.858);
+  --card: oklch(0.225 0.031 264.3);
+  --card-foreground: oklch(0.96 0.005 247.858);
+  --popover: oklch(0.235 0.031 264.3);
+  --popover-foreground: oklch(0.96 0.005 247.858);
+  /* Dark enough that near-white text on it clears 4.5:1, which a lighter
+     blue with dark text does not. */
+  --primary: oklch(0.55 0.18 262);
+  --primary-foreground: oklch(0.98 0.003 247.858);
+  --secondary: oklch(0.285 0.035 260.031);
+  --secondary-foreground: oklch(0.96 0.005 247.858);
+  --muted: oklch(0.285 0.035 260.031);
+  --muted-foreground: oklch(0.7 0.035 256.788);
+  --accent: oklch(0.32 0.048 261);
+  --accent-foreground: oklch(0.8 0.1 259);
+  --destructive: oklch(0.68 0.19 22.216);
+  --destructive-foreground: oklch(0.16 0.03 264.3);
+  --success: oklch(0.72 0.14 162);
+  --success-foreground: oklch(0.16 0.03 264.3);
+  --warning: oklch(0.78 0.13 78);
+  --warning-foreground: oklch(0.16 0.03 264.3);
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.62 0.17 261);
+
+  --chart-1: oklch(0.62 0.17 261);
+  --chart-2: oklch(0.7 0.12 183);
+  --chart-3: oklch(0.72 0.14 162);
+  --chart-4: oklch(0.78 0.13 78);
+  --chart-5: oklch(0.68 0.19 22.216);
+
+  --sidebar: oklch(0.21 0.03 264.3);
+  --sidebar-foreground: oklch(0.96 0.005 247.858);
+  --sidebar-primary: oklch(0.55 0.18 262);
+  --sidebar-primary-foreground: oklch(0.98 0.003 247.858);
+  --sidebar-accent: oklch(0.32 0.048 261);
+  --sidebar-accent-foreground: oklch(0.8 0.1 259);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.62 0.17 261);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply scheme-light dark:scheme-dark;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans text-sm antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* A cabinet with three hundred documents is a lot of scrollbar; make it
+     quiet rather than chrome-coloured. */
+  @supports (scrollbar-width: thin) {
+    .scrollbar-thin {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
   }
 }
 
-:root[data-theme='dark'] {
-  --bg: #14171c;
-  --surface: #1b1f26;
-  --surface-2: #22272f;
-  --border: #2f363f;
-  --text: #e7eaef;
-  --text-dim: #9aa4b2;
-  --accent: #6fa0f5;
-  --accent-soft: #1d2a3f;
-  --danger: #f2b8b5;
-  --ok: #7fd1a0;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-}
-
-a {
-  color: var(--accent);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
-}
-
-button {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 6px 12px;
-  cursor: pointer;
-}
-button:hover:not(:disabled) {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-button.danger {
-  color: var(--danger);
-}
-
-input,
-select,
-textarea {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 6px 10px;
-  width: 100%;
-}
-
-.shell {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  min-height: 100vh;
-}
-
-.sidebar {
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.sidebar h1 {
-  font-size: 15px;
-  letter-spacing: 0.02em;
-  margin: 0 0 16px;
-}
-
-.sidebar nav a {
-  display: block;
-  padding: 7px 10px;
-  border-radius: var(--radius);
-  color: var(--text);
-}
-.sidebar nav a:hover {
-  background: var(--surface-2);
-  text-decoration: none;
-}
-.sidebar nav a[aria-current='page'] {
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.main {
-  padding: 20px 24px 48px;
-  min-width: 0;
-}
-
-.row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.row.wrap {
-  flex-wrap: wrap;
-}
-.spacer {
-  flex: 1;
-}
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-}
-
-.grid-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 14px;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-th,
-td {
-  text-align: left;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 420px;
-}
-th {
-  background: var(--surface-2);
-  font-weight: 600;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-}
-tbody tr:hover {
-  background: var(--surface-2);
-}
-tbody tr[aria-selected='true'] {
-  background: var(--accent-soft);
-}
-
-.explorer {
-  display: grid;
-  grid-template-columns: 260px 1fr 340px;
-  gap: 14px;
-  align-items: start;
-}
-
-.tree {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px;
-  max-height: calc(100vh - 160px);
-  overflow: auto;
-}
-.tree button {
-  background: none;
-  border: none;
-  width: 100%;
-  text-align: left;
-  padding: 5px 8px;
-  border-radius: 6px;
-}
-.tree button:hover {
-  background: var(--surface-2);
-}
-.tree button[aria-current='true'] {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.muted {
-  color: var(--text-dim);
-}
-.small {
-  font-size: 12px;
-}
-.mono {
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
-.pill {
-  display: inline-block;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  font-size: 11px;
-}
-
-.error {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
-  border-radius: var(--radius);
-  padding: 8px 12px;
-}
-
-.field {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 10px;
-}
-.field label {
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.login {
-  display: grid;
-  place-items: center;
-  min-height: 100vh;
-  padding: 16px;
-}
-.login .card {
-  width: 100%;
-  max-width: 380px;
-}
-
-@media (max-width: 1100px) {
-  .explorer {
-    grid-template-columns: 1fr;
+@utility no-scrollbar {
+  &::-webkit-scrollbar {
+    display: none;
   }
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-@media (max-width: 720px) {
-  .shell {
-    grid-template-columns: 1fr;
-  }
-  .sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-  .main {
-    padding: 16px;
-  }
-}
+/* --- PDF.js text layer --------------------------------------------------
+   PDF.js builds these spans itself and positions them over the glyphs the
+   canvas paints, so they cannot be Tailwind classes on a component. */
 
-/* --- document viewer ---------------------------------------------------- */
-
-.viewer {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  height: 100%;
-  min-height: 0;
-}
-
-.viewer-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 8px 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.viewer-toolbar-second {
-  background: var(--surface-2);
-}
-
-.viewer-title {
-  max-width: 28ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.viewer-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.viewer-swatch {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-}
-
-.viewer-selection {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-}
-
-.viewer-body {
-  display: flex;
-  gap: 10px;
-  flex: 1;
-  min-height: 0;
-}
-
-.viewer-outline {
-  width: 220px;
-  flex: none;
-  overflow: auto;
-  padding: 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.viewer-outline-link {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: none;
-  background: none;
-  color: var(--text);
-  padding: 3px 4px;
-}
-
-.viewer-outline-link:hover:not(:disabled) {
-  color: var(--accent);
-}
-
-.viewer-scroll {
-  flex: 1;
-  min-width: 0;
-  overflow: auto;
-  /* A mid grey behind the page, so a white page reads as paper and the edge of
-     a scanned page with a white margin is still visible. */
-  background: #4a4f57;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-
-.viewer-page {
-  position: relative;
-  flex: none;
-  background: #fff;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
-}
-
-.viewer-page canvas {
-  display: block;
-}
-
-.viewer-page-number {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: #8d939c;
-  font: 600 14px/1 system-ui, sans-serif;
-}
-
-/* PDF.js positions transparent spans over the glyphs so the text is
-   selectable; the glyphs themselves are painted on the canvas below. */
 .viewer-text-layer {
   position: absolute;
   inset: 0;
@@ -448,12 +206,7 @@ tbody tr[aria-selected='true'] {
 }
 
 .viewer-text-layer ::selection {
-  background: rgb(31 95 208 / 35%);
-}
-
-.viewer-overlay {
-  position: absolute;
-  inset: 0;
+  background: color-mix(in oklab, var(--primary) 35%, transparent);
 }
 
 .viewer-search-hit {
@@ -464,161 +217,29 @@ tbody tr[aria-selected='true'] {
 
 .viewer-annotation-selected {
   fill: none;
-  stroke: var(--accent);
+  stroke: var(--primary);
   stroke-width: 1.5;
   stroke-dasharray: 5 3;
 }
 
-/* --- workflow designer -------------------------------------------------- */
+/* --- React Flow chrome -------------------------------------------------
+   React Flow renders its controls and minimap into its own containers, so
+   theming them means selecting its class names. */
 
-.wf-designer {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  height: calc(100vh - 170px);
-  min-height: 420px;
-}
-
-.wf-body {
-  display: flex;
-  gap: 10px;
-  flex: 1;
-  min-height: 0;
-}
-
-.wf-canvas {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--surface-2);
-}
-
-.wf-inspector {
-  width: 280px;
-  flex: none;
-  overflow: auto;
-}
-
-.wf-inspector h3 {
-  margin: 0 0 2px;
-}
-
-.wf-picker {
-  max-height: 140px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.wf-problems {
-  margin: 0;
-  padding: 8px 10px 8px 26px;
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-}
-
-/* React Flow renders nodes into its own container, so these are plain
-   class selectors rather than descendants of .wf-canvas. */
-.wf-node {
-  min-width: 160px;
-  max-width: 220px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--text-dim);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text);
-  font: 400 12px/1.35 system-ui, sans-serif;
-}
-
-.wf-node[data-selected='true'] {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
-
-/* The left edge carries the task type, so a flow is readable at a glance
-   without reading every label. */
-.wf-node[data-type='approval'],
-.wf-node[data-type='review'] {
-  border-left-color: var(--accent);
-}
-.wf-node[data-type='decision'] {
-  border-left-color: #b8860b;
-}
-.wf-node[data-type='end'] {
-  border-left-color: var(--danger);
-}
-.wf-node[data-type='notify'],
-.wf-node[data-type='email'] {
-  border-left-color: var(--ok);
-}
-
-.wf-node-type {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-}
-
-.wf-node-name {
-  font-weight: 600;
-  margin: 1px 0 2px;
-  word-break: break-word;
-}
-
-.wf-node-meta {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.wf-node-warn {
-  display: inline-grid;
-  place-items: center;
-  width: 13px;
-  height: 13px;
-  margin-left: 4px;
-  border-radius: 50%;
-  background: var(--danger);
-  color: var(--surface);
-  font-size: 9px;
-  font-weight: 700;
-  vertical-align: 1px;
-}
-
-.wf-node-problem .wf-node,
-.wf-node-problem .wf-stop {
-  border-color: var(--danger);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 25%, transparent);
-}
-
-.wf-stop {
-  padding: 8px 16px;
-  border: 1px dashed var(--text-dim);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text-dim);
-  font: 600 11px/1 system-ui, sans-serif;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-/* React Flow's own chrome, themed to match. */
 .react-flow__controls-button {
-  background: var(--surface);
+  background: var(--card);
   border-bottom: 1px solid var(--border);
-  fill: var(--text);
+  fill: var(--foreground);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--accent);
 }
 
 .react-flow__minimap {
-  background: var(--surface);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .react-flow__attribution {
@@ -627,123 +248,22 @@ tbody tr[aria-selected='true'] {
 }
 
 .react-flow__attribution a {
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
-.wf-start {
-  border-style: solid;
-  border-color: var(--accent);
-  color: var(--accent);
+.react-flow__edge-text {
+  font-size: 11px;
 }
 
-.wf-side {
-  width: 300px;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 0;
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: var(--card);
+  border: 1.5px solid var(--muted-foreground);
 }
 
-.wf-side .wf-inspector {
-  width: auto;
-  flex: 1;
-}
-
-.wf-clause {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr auto;
-  gap: 4px;
-  align-items: center;
-  margin-bottom: 4px;
-}
-
-.wf-clause select,
-.wf-clause input {
-  min-width: 0;
-}
-
-.wf-clause-pair {
-  grid-template-columns: 1fr 1fr auto;
-}
-
-/* --- explorer: fewer clicks -------------------------------------------- */
-
-.breadcrumb button {
-  border: none;
-  background: none;
-  padding: 2px 4px;
-  color: var(--accent);
-  font: inherit;
-}
-
-.breadcrumb button:hover {
-  text-decoration: underline;
-}
-
-/* The name is the open control, so it has to look like one. */
-.row-name {
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  color: var(--text);
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.row-name:hover {
-  color: var(--accent);
-  text-decoration: underline;
-}
-
-/* Actions stay out of the way until the row is under the pointer, selected,
-   or focused — a grid of buttons is harder to read than a grid of names. */
-.row-actions {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  visibility: hidden;
-}
-
-tr:hover .row-actions,
-tr[aria-selected='true'] .row-actions,
-tr[data-cursor='true'] .row-actions,
-.row-actions:focus-within {
-  visibility: visible;
-}
-
-/* The keyboard cursor, distinct from selection: you can be moving through
-   the list without having chosen anything yet. */
-tr[data-cursor='true'] td:first-child {
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.grid-drop {
-  overflow-x: auto;
-  border: 2px dashed transparent;
-  border-radius: var(--radius);
-  transition: border-color 120ms, background 120ms;
-}
-
-.grid-drop.dragging {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgb(0 0 0 / 45%);
-  display: grid;
-  place-items: center;
-  z-index: 50;
-  padding: 16px;
-}
-
-.modal {
-  width: min(460px, 100%);
-  max-height: 90vh;
-  overflow: auto;
+.react-flow__handle-connecting,
+.react-flow__handle:hover {
+  border-color: var(--primary);
+  background: var(--primary);
 }
