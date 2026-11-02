@@ -109,6 +109,13 @@ run rather than committed, so the PDF under test is never a stale blob.
 fields, role grants, workflows and audit trail; pinning, per-cabinet stats,
 read-only and offline status.
 
+**The file list** — a document's name is a link, so opening one is a click
+rather than a selection and a trip to a side panel; a PDF opens in the viewer
+and anything else as its bytes. Check out, check in, open and download sit on
+the row. Arrow keys move, Enter opens, Space selects, Backspace goes up a
+folder. Files dropped anywhere on the list upload into the folder on screen,
+and a breadcrumb gives a way back up that is not the tree.
+
 **Documents** — folder/document/link tree with a materialised path, create,
 rename, move (whole subtrees in one prefix update), copy (metadata copied,
 blob shared by content hash), soft delete into a per-cabinet recycle bin with
@@ -120,6 +127,9 @@ field with a dry-run preview. Values are typed rows, not dynamic columns.
 
 **Versions** — check-out/check-in with major.minor versioning, revert (itself
 undoable), lock breaking by an administrator, and a "my check-outs" view.
+Check-out and check-in are on the row in the file list, and check-in takes the
+revised file: the row says who holds a lock, and offers the action only to the
+person who can take it.
 
 **Upload** — chunked, resumable: `begin` → `PUT /upload/:id/:segment` →
 `finish`, with a segment-presence query, SHA-256 verification and staging

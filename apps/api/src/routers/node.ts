@@ -54,13 +54,22 @@ const nodeSelect = {
   indexModified: true,
   created: true,
   modified: true,
+  // Who holds the lock, so a grid can offer "check in" to the one person who
+  // can act on it instead of making everyone open the document to find out.
+  checkout: { select: { userId: true, user: { select: { userName: true } } } },
 } satisfies Prisma.NodeSelect;
 
 export type NodeRow = Prisma.NodeGetPayload<{ select: typeof nodeSelect }>;
 
 /** Serialises BigInt byteLength so the row survives JSON transport. */
 function toDto(row: NodeRow) {
-  return { ...row, byteLength: row.byteLength === null ? null : Number(row.byteLength) };
+  const { checkout, ...rest } = row;
+  return {
+    ...rest,
+    byteLength: row.byteLength === null ? null : Number(row.byteLength),
+    checkedOutBy: checkout?.user.userName ?? null,
+    checkedOutById: checkout?.userId ?? null,
+  };
 }
 
 /** Resolves the node and asserts `right` in its cabinet. */

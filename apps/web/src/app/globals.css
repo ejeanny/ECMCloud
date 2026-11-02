@@ -666,3 +666,84 @@ tbody tr[aria-selected='true'] {
 .wf-clause-pair {
   grid-template-columns: 1fr 1fr auto;
 }
+
+/* --- explorer: fewer clicks -------------------------------------------- */
+
+.breadcrumb button {
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  color: var(--accent);
+  font: inherit;
+}
+
+.breadcrumb button:hover {
+  text-decoration: underline;
+}
+
+/* The name is the open control, so it has to look like one. */
+.row-name {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.row-name:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Actions stay out of the way until the row is under the pointer, selected,
+   or focused — a grid of buttons is harder to read than a grid of names. */
+.row-actions {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  visibility: hidden;
+}
+
+tr:hover .row-actions,
+tr[aria-selected='true'] .row-actions,
+tr[data-cursor='true'] .row-actions,
+.row-actions:focus-within {
+  visibility: visible;
+}
+
+/* The keyboard cursor, distinct from selection: you can be moving through
+   the list without having chosen anything yet. */
+tr[data-cursor='true'] td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.grid-drop {
+  overflow-x: auto;
+  border: 2px dashed transparent;
+  border-radius: var(--radius);
+  transition: border-color 120ms, background 120ms;
+}
+
+.grid-drop.dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 16px;
+}
+
+.modal {
+  width: min(460px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+}

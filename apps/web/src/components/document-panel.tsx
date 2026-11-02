@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { formatBytes, formatDate, formatIndexValue } from '@/lib/format';
+import { CheckInDialog } from './check-in-dialog';
 import { trpc } from '@/lib/trpc';
 
 interface Props {
@@ -73,6 +74,8 @@ export function DocumentPanel({ nodeId, onChanged }: Props) {
           </a>
           <CheckOutControls
             nodeId={node.id}
+            cabinetId={node.cabinetId}
+            name={node.name}
             isCheckedOut={node.isCheckedOut}
             onChanged={refresh}
           />
@@ -119,15 +122,19 @@ export function DocumentPanel({ nodeId, onChanged }: Props) {
 
 function CheckOutControls({
   nodeId,
+  cabinetId,
+  name,
   isCheckedOut,
   onChanged,
 }: {
   nodeId: string;
+  cabinetId: string;
+  name: string;
   isCheckedOut: boolean;
   onChanged: () => void;
 }) {
+  const [checkingIn, setCheckingIn] = useState(false);
   const checkOut = trpc.version.checkOut.useMutation({ onSuccess: onChanged });
-  const checkIn = trpc.version.checkIn.useMutation({ onSuccess: onChanged });
   const cancel = trpc.version.cancelCheckOut.useMutation({ onSuccess: onChanged });
 
   if (!isCheckedOut) {
@@ -140,12 +147,22 @@ function CheckOutControls({
 
   return (
     <>
-      <button className="pill" onClick={() => checkIn.mutate({ nodeId, bump: 'minor' })}>
+      {/* The dialog, not a bare mutation: check-in takes the revised file. */}
+      <button className="pill" onClick={() => setCheckingIn(true)}>
         Check in
       </button>
       <button className="pill danger" onClick={() => cancel.mutate({ nodeId })}>
         Cancel check-out
       </button>
+      {checkingIn ? (
+        <CheckInDialog
+          nodeId={nodeId}
+          cabinetId={cabinetId}
+          name={name}
+          onClose={() => setCheckingIn(false)}
+          onDone={onChanged}
+        />
+      ) : null}
     </>
   );
 }
