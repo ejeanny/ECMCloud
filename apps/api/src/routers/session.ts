@@ -9,10 +9,12 @@ import { env } from '../env.js';
 import { loadPrincipal } from '../principal.js';
 import {
   badRequest,
+  forbidden,
   protectedProcedure,
   publicProcedure,
   router,
   systemRight,
+  unauthorized,
 } from '../trpc.js';
 
 /**
@@ -42,14 +44,17 @@ export const sessionRouter = router({
         action: 'loginFailed',
         detail: { userName: input.userName },
       });
-      badRequest('Invalid user name or password.');
+      unauthorized('Invalid user name or password.');
     }
 
+    // The account exists and the password was right; it is the account itself
+    // that is not allowed in, which is 403 rather than 401 — retrying with the
+    // same credentials will not help.
     if (user.status !== 'active') {
-      badRequest(`Account is ${user.status}.`);
+      forbidden(`Account is ${user.status}.`);
     }
     if (user.expirationDate && user.expirationDate <= new Date()) {
-      badRequest('Account has expired.');
+      forbidden('Account has expired.');
     }
 
     const token = randomBytes(32).toString('base64url');

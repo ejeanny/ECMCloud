@@ -95,3 +95,20 @@ export function conflict(message: string): never {
 export function badRequest(message: string): never {
   throw new TRPCError({ code: 'BAD_REQUEST', message });
 }
+
+/**
+ * Credentials that were not accepted — 401, not 400.
+ *
+ * The distinction is worth the extra helper: a rejected sign-in used to answer
+ * `400 Bad Request`, which in a network panel is indistinguishable from the
+ * client having sent something malformed. Anyone debugging a login then starts
+ * looking at the request shape instead of at the password.
+ */
+export function unauthorized(message: string): never {
+  throw new TRPCError({ code: 'UNAUTHORIZED', message });
+}
+
+/** Known, authenticated, and still not allowed in. */
+export function forbidden(message: string): never {
+  throw new TRPCError({ code: 'FORBIDDEN', message });
+}
