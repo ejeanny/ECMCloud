@@ -143,8 +143,13 @@ The API is watched through `tsc`, not run from `src` directly: its imports
 carry `.js` specifiers because they are written for the compiled output, and
 Node's type stripping does not rewrite a `.js` specifier to the `.ts` beside
 it. `npm run dev:api` therefore builds once, then leaves `tsc -b --watch`
-writing `dist/` and `node --watch` restarting on it. `npm run db:seed` builds
-for the same reason — it imports `@ecm/domain`.
+writing `dist/` and `node --watch` restarting on it — two long-lived processes,
+which is why it is a Node script too. `npm run db:seed` builds for the same
+reason — it imports `@ecm/domain`.
+
+Both launchers share `scripts/lib/processes.mjs`, which is where the awkward
+parts live: giving each child a process group so stopping one stops the tree
+holding the ports, and `taskkill /T` on Windows, which has no process groups.
 
 The web app proxies `/trpc`, `/file` and `/upload` to the API, so the browser
 stays on one origin and the session cookie is first-party.
