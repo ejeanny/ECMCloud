@@ -42,6 +42,25 @@ Nothing in the application code knows which it is talking to — Prisma Postgres
 over TCP is ordinary PostgreSQL, so there is no driver adapter and no client
 extension. Queries run through the pooled connection are billed per operation.
 
+#### Or Neon
+
+The same two-string split, under different names: Neon's **pooled** host has
+`-pooler` in it and its **direct** host is the same string with that removed.
+Neon's own Prisma guide calls them `DATABASE_URL` and `DATABASE_URL_UNPOOLED`.
+
+```bash
+DATABASE_URL="postgresql://USER:PASS@ep-xxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DIRECT_DATABASE_URL="postgresql://USER:PASS@ep-xxx.REGION.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+```
+
+Keep both. With only the pooled one set, the CLI falls back to it and pushes
+schema changes through PgBouncer in transaction mode, which is where
+`migrate` and `db push` hang on advisory locks. `pgbouncer=true` is not
+needed; Neon no longer wants it and Prisma only does for PgBouncer older than
+1.21. Neon suspends an idle compute, so the first query after a pause can
+outrun Prisma's five-second connect timeout and surface as `P1001` — append
+`&connect_timeout=15` if that bites.
+
 #### Or an ordinary PostgreSQL
 
 Set `DATABASE_URL` alone and leave `DIRECT_DATABASE_URL` unset; the CLI
@@ -108,13 +127,24 @@ npm run dev
 ```
 
 Then open <http://localhost:3000> and sign in as `admin` with the password you
-just seeded. `npm run dev:api` and `npm run dev:web` run either half alone.
+just seeded. `npm run dev:api` and `npm run dev:web` run either half alone,
+and Ctrl-C on `npm run dev` stops both.
+
+Two things that command does that are worth knowing about, because a fresh
+clone fails without them. It builds `@ecm/domain` before starting anything:
+the web app resolves that package to its compiled output at run time, so
+until it exists the viewer and the workflow designer will not load. And it is
+a Node script rather than `npm run dev -w @ecm/api & npm run dev -w @ecm/web`,
+because npm runs scripts through `cmd.exe` on Windows, where `A & B` is a
+sequential separator rather than a backgrounding one — the API would start and
+the web app would never be reached.
 
 The API is watched through `tsc`, not run from `src` directly: its imports
 carry `.js` specifiers because they are written for the compiled output, and
 Node's type stripping does not rewrite a `.js` specifier to the `.ts` beside
 it. `npm run dev:api` therefore builds once, then leaves `tsc -b --watch`
-writing `dist/` and `node --watch` restarting on it.
+writing `dist/` and `node --watch` restarting on it. `npm run db:seed` builds
+for the same reason — it imports `@ecm/domain`.
 
 The web app proxies `/trpc`, `/file` and `/upload` to the API, so the browser
 stays on one origin and the session cookie is first-party.

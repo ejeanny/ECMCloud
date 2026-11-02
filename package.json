@@ -13,7 +13,7 @@
   "scripts": {
     "build": "npm run build -w @ecm/domain && npm run build -w @ecm/db && npm run build -w @ecm/api && npm run build -w @ecm/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "dev": "npm run dev -w @ecm/api & npm run dev -w @ecm/web",
+    "dev": "node scripts/dev.mjs",
     "dev:api": "npm run dev -w @ecm/api",
     "dev:web": "npm run dev -w @ecm/web",
     "db:generate": "npm run generate -w @ecm/db",
