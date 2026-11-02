@@ -676,6 +676,15 @@ model WorkflowVersion {
   workflowId String  @db.Uuid
   revision   Int
   published  Boolean @default(false)
+
+  /// Which task an instance starts at.
+  ///
+  /// Without this the entry has to be inferred as "the task nothing routes to",
+  /// which is wrong for the commonest approval shape there is: reject sends the
+  /// document back to the first reviewer, so every task has an incoming edge
+  /// and the workflow cannot start at all. Null keeps that inference, so
+  /// designs saved before this stay startable.
+  entryTaskKey String?
   /// Dokmee: Workflow_Triggers + Workflow_Trigger_Criteria.
   onNewDocument   Boolean @default(false)
   onIndexChanged  Boolean @default(false)
@@ -704,6 +713,14 @@ model WorkflowTask {
   type      String /// WorkflowTaskType
   allowSpecificReviewer Boolean @default(false)
   config    Json    @default("{}")
+
+  /// Where the designer draws this task. Null means the graph was built
+  /// without one, so the designer lays it out on open rather than stacking
+  /// everything at the origin — which keeps `workflow.save` usable from the
+  /// API alone, as Dokmee's was before its Rappid canvas existed.
+  x Float?
+  y Float?
+
   created   DateTime @default(now())
 
   version   WorkflowVersion        @relation(fields: [versionId], references: [id], onDelete: Cascade)

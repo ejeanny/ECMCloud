@@ -119,10 +119,14 @@ JSON predicates. A permission change revokes the affected sessions immediately.
 **Audit** — every state change plus views and downloads, queryable and
 exportable, with a per-day activity rollup.
 
-**Workflow** — design revisions with a publish step, tasks with role/user
-assignees, routings on approve/reject/decision, triggers on new document or
-index change narrowed by criteria, a per-user task inbox, and per-document
-instance history.
+**Workflow** — a visual designer on React Flow (Dokmee's was Rappid/JointJS),
+drawing the same graph `workflow.save` takes: tasks joined by routings that
+fire on approve, reject or a named choice, with the start and the stop drawn
+rather than inferred. Problems that would be rejected on save — an ambiguous
+pair of routings, a decision with no branches, a missing start — are shown on
+the canvas before the round trip. Behind it: design revisions with a publish
+step, role and user assignees, triggers on new document or index change
+narrowed by criteria, a per-user task inbox, and per-document instance history.
 
 **Retention** — rules with a period, a date field, criteria and an action;
 expiry preview before anything is deleted; notify / recycle / permanent delete.
@@ -159,8 +163,8 @@ fails with the specific reason it has none, rather than silently doing nothing:
 - Data extraction, auto-indexing, data export to external systems, RPA
 - AI search, AI summaries, AI file creation
 - Email ingest and delivery, DocuSign, SAML and Active Directory sync
-- The Rappid/JointJS visual workflow designer; workflows are saved through
-  `workflow.save`, which takes the task and routing graph directly
+- Workflow task types that need an engine: `rpa`, `email` and `signature`. The
+  designer marks them, so a flow is not drawn around a step that would stall
 - Dokmee Capture, Hub and the Outlook add-in, and licensing
 
 The data model carries the columns these features need (`emailFrom`,

@@ -468,3 +468,170 @@ tbody tr[aria-selected='true'] {
   stroke-width: 1.5;
   stroke-dasharray: 5 3;
 }
+
+/* --- workflow designer -------------------------------------------------- */
+
+.wf-designer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: calc(100vh - 170px);
+  min-height: 420px;
+}
+
+.wf-body {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.wf-canvas {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.wf-inspector {
+  width: 280px;
+  flex: none;
+  overflow: auto;
+}
+
+.wf-inspector h3 {
+  margin: 0 0 2px;
+}
+
+.wf-picker {
+  max-height: 140px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wf-problems {
+  margin: 0;
+  padding: 8px 10px 8px 26px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+/* React Flow renders nodes into its own container, so these are plain
+   class selectors rather than descendants of .wf-canvas. */
+.wf-node {
+  min-width: 160px;
+  max-width: 220px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-dim);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: 400 12px/1.35 system-ui, sans-serif;
+}
+
+.wf-node[data-selected='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* The left edge carries the task type, so a flow is readable at a glance
+   without reading every label. */
+.wf-node[data-type='approval'],
+.wf-node[data-type='review'] {
+  border-left-color: var(--accent);
+}
+.wf-node[data-type='decision'] {
+  border-left-color: #b8860b;
+}
+.wf-node[data-type='end'] {
+  border-left-color: var(--danger);
+}
+.wf-node[data-type='notify'],
+.wf-node[data-type='email'] {
+  border-left-color: var(--ok);
+}
+
+.wf-node-type {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.wf-node-name {
+  font-weight: 600;
+  margin: 1px 0 2px;
+  word-break: break-word;
+}
+
+.wf-node-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.wf-node-warn {
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: var(--surface);
+  font-size: 9px;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+
+.wf-node-problem .wf-node,
+.wf-node-problem .wf-stop {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+.wf-stop {
+  padding: 8px 16px;
+  border: 1px dashed var(--text-dim);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font: 600 11px/1 system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* React Flow's own chrome, themed to match. */
+.react-flow__controls-button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  fill: var(--text);
+}
+
+.react-flow__minimap {
+  background: var(--surface);
+}
+
+.react-flow__attribution {
+  background: transparent;
+  font-size: 10px;
+}
+
+.react-flow__attribution a {
+  color: var(--text-dim);
+}
+
+.wf-start {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+}

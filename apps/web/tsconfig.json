@@ -28,9 +28,15 @@
       "@/*": [
         "./src/*"
       ],
+      // Built JS, not the .d.ts: the bundler honours these paths at run time
+      // too, and a types-only file leaves every value import undefined —
+      // which type-checks perfectly and then fails in the browser.
       "@ecm/domain": [
-        "../../packages/domain/dist/index.d.ts"
+        "../../packages/domain/dist/index.js"
       ],
+      // The router, by contrast, is imported for its type alone. Pointing this
+      // at the built JS would pull Fastify and Prisma into the client bundle,
+      // so it stays a .d.ts deliberately.
       "@ecm/api/router": [
         "../../apps/api/dist/routers/index.d.ts"
       ]

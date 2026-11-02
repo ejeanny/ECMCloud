@@ -48,7 +48,7 @@ export async function startInstance(
   });
   if (existing) return existing.id;
 
-  const firstKey = firstTaskKey(version.tasks, version.routings);
+  const firstKey = firstTaskKey(version.tasks, version.routings, version.entryTaskKey);
   if (!firstKey) return null;
 
   const instance = await tx.workflowInstance.create({
@@ -70,10 +70,20 @@ export async function startInstance(
  * target the design is cyclic with no entry, which is a design error rather
  * than something to guess around.
  */
-function firstTaskKey(
+/**
+ * Where an instance starts.
+ *
+ * A declared entry wins. Otherwise it is inferred as the first task nothing
+ * routes to — which is right for a straight line, and wrong as soon as a
+ * rejection loops back to the first reviewer, because then every task has an
+ * incoming edge. That is why the entry can be declared.
+ */
+export function firstTaskKey(
   tasks: ReadonlyArray<{ key: string }>,
   routings: ReadonlyArray<{ toTaskKey: string | null }>,
+  entryTaskKey?: string | null,
 ): string | null {
+  if (entryTaskKey && tasks.some((t) => t.key === entryTaskKey)) return entryTaskKey;
   const targets = new Set(routings.map((r) => r.toTaskKey).filter((k): k is string => k !== null));
   return tasks.find((t) => !targets.has(t.key))?.key ?? null;
 }

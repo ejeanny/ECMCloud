@@ -334,14 +334,32 @@ export const workflowTaskInput = z.object({
   allowSpecificReviewer: z.boolean().default(false),
   /** Free-form per-type configuration, validated by the task handler. */
   config: z.record(z.unknown()).default({}),
+  /** Canvas position. Optional, so a graph can still be posted without one. */
+  x: z.number().finite().optional(),
+  y: z.number().finite().optional(),
 });
 
-export const workflowRoutingInput = z.object({
-  fromTaskKey: z.string().min(1).max(64),
-  toTaskKey: z.string().min(1).max(64).nullable(),
-  type: z.enum(ROUTING_TYPES).default('always'),
-  order: z.number().int().min(0).default(0),
-});
+export const workflowRoutingInput = z
+  .object({
+    fromTaskKey: z.string().min(1).max(64),
+    toTaskKey: z.string().min(1).max(64).nullable(),
+    type: z.enum(ROUTING_TYPES).default('always'),
+    /**
+     * Which choice this edge answers, for `onDecision`. The engine matches it
+     * against the choice a reviewer picked, so an edge without one can never
+     * be taken.
+     */
+    decision: z.string().min(1).max(256).nullable().default(null),
+    order: z.number().int().min(0).default(0),
+  })
+  .refine((r) => (r.type === 'onDecision' ? r.decision !== null : true), {
+    message: 'A decision routing needs the choice it answers.',
+    path: ['decision'],
+  })
+  .refine((r) => (r.type === 'onDecision' ? true : r.decision === null), {
+    message: 'Only a decision routing carries a choice.',
+    path: ['decision'],
+  });
 
 export const saveWorkflowInput = z.object({
   cabinetId: uuid,
@@ -356,6 +374,11 @@ export const saveWorkflowInput = z.object({
   }),
   tasks: z.array(workflowTaskInput.extend({ key: z.string().min(1).max(64) })).max(200),
   routings: z.array(workflowRoutingInput).max(500),
+  /**
+   * Where an instance starts. Null falls back to inferring it as the first task
+   * nothing routes to, which is what a design without a drawn start means.
+   */
+  entryTaskKey: z.string().min(1).max(64).nullable().default(null),
 });
 
 export const startWorkflowInput = z.object({

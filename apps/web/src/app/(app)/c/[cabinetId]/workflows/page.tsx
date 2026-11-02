@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { formatDate } from '@/lib/format';
 import { trpc } from '@/lib/trpc';
@@ -20,7 +21,13 @@ export default function WorkflowsPage() {
 
   return (
     <>
-      <h2>Workflows</h2>
+      <div className="row">
+        <h2 style={{ margin: 0 }}>Workflows</h2>
+        <span className="spacer" />
+        <Link className="pill" href={`/c/${cabinetId}/workflows/new`}>
+          New workflow
+        </Link>
+      </div>
       <p className="muted small">
         A workflow has design revisions; one is published and is what triggers
         and manual starts run. Revisions are immutable once published.
@@ -65,6 +72,9 @@ export default function WorkflowsPage() {
                 </td>
                 <td>
                   <div className="row small">
+                    <Link className="pill" href={`/c/${cabinetId}/workflows/${w.id}`}>
+                      Design
+                    </Link>
                     <select
                       defaultValue=""
                       onChange={(e) => {
@@ -99,9 +109,9 @@ export default function WorkflowsPage() {
       ) : null}
 
       <p className="small muted" style={{ marginTop: 14 }}>
-        The visual designer Dokmee built on Rappid/JointJS is not part of this
-        rebuild; workflows are saved through <code>workflow.save</code>, which
-        takes the task and routing graph directly.
+        The designer draws the same graph <code>workflow.save</code> takes, so a
+        workflow built on the canvas and one posted through the API are the same
+        thing. Dokmee&apos;s canvas was Rappid/JointJS; this one is React Flow.
       </p>
     </>
   );

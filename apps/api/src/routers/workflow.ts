@@ -11,7 +11,7 @@ import {
   protectedProcedure,
   router,
 } from '../trpc.js';
-import { advance, startInstance } from '../workflow-engine.js';
+import { advance, firstTaskKey, startInstance } from '../workflow-engine.js';
 
 /**
  * Dokmee: WorkflowController / GlobalWorkflowController, over the per-cabinet
@@ -83,6 +83,7 @@ export const workflowRouter = router({
         },
         revision: version.revision,
         published: version.published,
+        entryTaskKey: version.entryTaskKey,
         trigger: {
           onNewDocument: version.onNewDocument,
           onIndexChanged: version.onIndexChanged,
@@ -95,6 +96,8 @@ export const workflowRouter = router({
           type: t.type,
           allowSpecificReviewer: t.allowSpecificReviewer,
           config: t.config,
+          x: t.x,
+          y: t.y,
           assigneeRoleIds: t.assignees.flatMap((a) => (a.roleId ? [a.roleId] : [])),
           assigneeUserIds: t.assignees.flatMap((a) => (a.userId ? [a.userId] : [])),
         })),
@@ -108,6 +111,31 @@ export const workflowRouter = router({
       };
     }),
 
+  /**
+   * Who a task can be assigned to.
+   *
+   * Roles and users are otherwise behind `User_Administration`, which a
+   * workflow designer has no reason to hold — but choosing a reviewer means
+   * knowing the names. This returns identifiers and labels only, gated on the
+   * right that designing a workflow already needs.
+   */
+  assignees: cabinetRight('Workflow_Management')
+    .input(z.object({ cabinetId: z.string().uuid() }))
+    .query(async () => {
+      const [roles, users] = await Promise.all([
+        prisma.role.findMany({
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true },
+        }),
+        prisma.user.findMany({
+          where: { status: 'active' },
+          orderBy: { userName: 'asc' },
+          select: { id: true, userName: true, firstName: true, lastName: true },
+        }),
+      ]);
+      return { roles, users };
+    }),
+
   /** Saving always creates a new revision; published revisions stay immutable. */
   save: cabinetRight('Workflow_Management')
     .input(saveWorkflowInput)
@@ -116,6 +144,13 @@ export const workflowRouter = router({
       if (taskKeys.size !== input.tasks.length) {
         badRequest('Task keys must be unique within a workflow.');
       }
+      if (input.entryTaskKey !== null && !taskKeys.has(input.entryTaskKey)) {
+        badRequest(`The entry task "${input.entryTaskKey}" is not one of the tasks.`);
+      }
+      // The engine takes the *first* routing that matches, so two edges with
+      // the same condition from one task make the flow depend on row order.
+      // Reject that here rather than letting it become an intermittent bug.
+      const seen = new Set<string>();
       for (const r of input.routings) {
         if (!taskKeys.has(r.fromTaskKey)) {
           badRequest(`Routing references unknown task "${r.fromTaskKey}".`);
@@ -123,6 +158,14 @@ export const workflowRouter = router({
         if (r.toTaskKey !== null && !taskKeys.has(r.toTaskKey)) {
           badRequest(`Routing references unknown task "${r.toTaskKey}".`);
         }
+        const condition = `${r.fromTaskKey}\u0000${r.type}\u0000${r.decision ?? ''}`;
+        if (seen.has(condition)) {
+          badRequest(
+            `"${r.fromTaskKey}" has two ${r.type}${r.decision ? ` "${r.decision}"` : ''} routings; ` +
+              'which one runs would depend on their order.',
+          );
+        }
+        seen.add(condition);
       }
 
       const result = await prisma.$transaction(async (tx) => {
@@ -163,6 +206,7 @@ export const workflowRouter = router({
           data: {
             workflowId,
             revision: (last?.revision ?? 0) + 1,
+            entryTaskKey: input.entryTaskKey,
             onNewDocument: input.trigger.onNewDocument,
             onIndexChanged: input.trigger.onIndexChanged,
             triggerCombine: input.trigger.combine,
@@ -179,6 +223,8 @@ export const workflowRouter = router({
               type: task.type,
               allowSpecificReviewer: task.allowSpecificReviewer,
               config: task.config as never,
+              x: task.x,
+              y: task.y,
               assignees: {
                 create: [
                   ...task.assigneeRoleIds.map((roleId) => ({ roleId })),
@@ -195,6 +241,7 @@ export const workflowRouter = router({
             fromTaskKey: r.fromTaskKey,
             toTaskKey: r.toTaskKey,
             type: r.type,
+            decision: r.decision,
             order: r.order,
           })),
         });
@@ -227,11 +274,13 @@ export const workflowRouter = router({
       if (version.workflow.cabinetId !== input.cabinetId) notFound('Workflow revision');
       if (version.tasks.length === 0) badRequest('A workflow needs at least one task.');
 
-      const targets = new Set(
-        version.routings.flatMap((r) => (r.toTaskKey ? [r.toTaskKey] : [])),
-      );
-      if (!version.tasks.some((t) => !targets.has(t.key))) {
-        badRequest('No entry task: every task is the target of a routing.');
+      // Ask the engine's own rule, rather than re-deriving it here and getting
+      // a different answer: a declared entry is valid even when every task has
+      // an incoming edge, which is exactly what a reject-loops-back design is.
+      if (!firstTaskKey(version.tasks, version.routings, version.entryTaskKey)) {
+        badRequest(
+          'No entry task: every task is the target of a routing, and none is marked as the start.',
+        );
       }
 
       await prisma.$transaction([
