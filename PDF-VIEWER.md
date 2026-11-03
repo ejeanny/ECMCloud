@@ -522,6 +522,43 @@ which is what establishes that the hand-written fax parameters decode to the
 right picture rather than merely to something. That suite needs no API and no
 database, which is why `npm test` no longer requires one for it.
 
+**JPEG 2000, which is three dozen lines because PDF already has the decoder.**
+JPEG 2000 *is* a PDF image filter (`JPXDecode`), and PDF.js ships OpenJPEG as
+WebAssembly to read it — which this app already serves, since `wasmUrl` is
+needed for CCITT anyway. So `apps/web/src/lib/viewer/jpeg2000.ts` decodes
+nothing at all: it reads the header for the page size and writes a dictionary
+around the file.
+
+Two decisions came out of reading the shipped PDF.js worker rather than
+guessing. Its `parseImageProperties` scans for the SIZ marker *anywhere* in the
+stream and `decode` hands the whole buffer to OpenJPEG, whose own format
+detection takes a `.jp2` wrapper as readily as a bare codestream — so the file
+goes in exactly as it arrived, which keeps the `colr` box, the only place an ICC
+profile or a non-sRGB space is stated. Stripping to the bare codestream, which
+is what the specification literally asks for, would discard that for nothing:
+this PDF is built for display and discarded, and PDF.js is its only reader.
+`/ColorSpace` and `/BitsPerComponent` are omitted, which for `JPXDecode` is
+what the specification wants — the codestream states both, and a copy in the
+dictionary could only contradict it.
+
+**What is verified, and what is not.** There is no JPEG 2000 encoder on a
+developer machine, and a wavelet codestream cannot be hand-written the way the
+fax codes above can be. So `tests/jpeg2000.mjs` is 94 assertions over
+hand-built *headers* with filler payloads: the size from the SIZ marker
+including the reference-grid origin that makes `Xsiz` alone wrong, the page box
+from the capture-resolution box, the byte-identical stream, and the absent
+colour space. A non-square fixture is in there because vertical comes first
+inside that box, the reverse of everywhere else.
+
+Loading one of those through PDF.js then establishes the rest of the chain
+[observed]: it found the SIZ marker, OpenJPEG initialised, and OpenJPEG parsed
+the `.jp2` boxes and descended into the codestream before failing on the filler
+with `Unknown marker ... Failed to read the header`. The page box came out
+181.417 × 136.063pt, which is 640×480 at the 254dpi the fixture declared. Every
+link is therefore checked except the wavelet decode itself — which belongs to
+the same OpenJPEG build that reads every JPEG 2000 PDF in the wild. A real
+`.jp2` has not been opened.
+
 **Office** needs a real layout engine, which is why it is the server's
 job. `GET /file/:id/pdf` converts through whatever `OFFICE_CONVERT_COMMAND`
 names — LibreOffice headless is what it is written for — and caches the

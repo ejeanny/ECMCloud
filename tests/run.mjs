@@ -24,6 +24,7 @@ const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z
  */
 const SUITES = [
   ['tiff', 'TIFF converted to PDF, page geometry and streams', { api: false }],
+  ['jpeg2000', 'JPEG 2000 carried into a PDF, header and geometry', { api: false }],
   ['flow', 'upload, index, search, versions, recycle'],
   ['restrictions', 'row-level view restrictions on every path'],
   ['annotations', 'annotations and XFDF'],

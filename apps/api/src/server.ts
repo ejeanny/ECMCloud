@@ -339,6 +339,12 @@ const MIME: Record<string, string> = {
   ico: 'image/vnd.microsoft.icon',
   tif: 'image/tiff',
   tiff: 'image/tiff',
+  jp2: 'image/jp2',
+  jpf: 'image/jpx',
+  jpx: 'image/jpx',
+  j2k: 'image/j2c',
+  j2c: 'image/j2c',
+  jpc: 'image/j2c',
 
   mp3: 'audio/mpeg',
   wav: 'audio/wav',

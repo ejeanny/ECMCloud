@@ -25,7 +25,12 @@ export const POINTS_PER_INCH = 72;
  * and nothing is re-encoded, so nothing is lost, and a 300dpi fax page stays
  * the 40kB it was instead of becoming a megabyte of JPEG.
  */
-export type ImageFilter = 'DCTDecode' | 'CCITTFaxDecode' | 'FlateDecode' | 'LZWDecode';
+export type ImageFilter =
+  | 'DCTDecode'
+  | 'CCITTFaxDecode'
+  | 'FlateDecode'
+  | 'LZWDecode'
+  | 'JPXDecode';
 
 export interface PlacedImage {
   /** The stream, already in `filter`'s encoding. */
@@ -36,9 +41,16 @@ export interface PlacedImage {
   filter: ImageFilter | null;
   /** `<<…>>` for the filter, written verbatim. */
   decodeParms?: string;
-  /** `/DeviceGray`, `/DeviceRGB`, `/DeviceCMYK`. */
-  colorSpace: string;
-  bitsPerComponent: number;
+  /**
+   * `/DeviceGray`, `/DeviceRGB`, `/DeviceCMYK`.
+   *
+   * Both this and the depth are omitted for a JPXDecode image, where the
+   * specification makes the colour space optional and says a declared depth
+   * shall be ignored: a JPEG 2000 codestream states them itself, and repeating
+   * them here could only disagree with it.
+   */
+  colorSpace?: string;
+  bitsPerComponent?: number;
   /** `[1 0]` to show the samples inverted, which is how WhiteIsZero is said. */
   decode?: string;
   /** Where to paint it, in points, from the bottom-left of the page. */
@@ -135,7 +147,8 @@ export function imageDocument(pages: ImagePage[]): Uint8Array {
       object(
         `<</Type/XObject/Subtype/Image` +
           `/Width ${image.pixelWidth}/Height ${image.pixelHeight}` +
-          `/ColorSpace${image.colorSpace}/BitsPerComponent ${image.bitsPerComponent}` +
+          (image.colorSpace ? `/ColorSpace${image.colorSpace}` : '') +
+          (image.bitsPerComponent ? `/BitsPerComponent ${image.bitsPerComponent}` : '') +
           (image.filter ? `/Filter/${image.filter}` : '') +
           (image.decodeParms ? `/DecodeParms${image.decodeParms}` : '') +
           (image.decode ? `/Decode${image.decode}` : '') +

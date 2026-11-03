@@ -44,10 +44,17 @@ const BY_EXT: Record<string, ViewerFormat> = {
   ico: 'image',
   svg: 'image',
 
-  // And the one it does not: a TIFF is read and converted by `tiff.ts`, so it
-  // never reaches the plain image renderer. It is an image all the same.
+  // And the two it does not: a TIFF and a JPEG 2000 are read and converted by
+  // `tiff.ts` and `jpeg2000.ts`, so neither reaches the plain image renderer.
+  // They are images all the same.
   tif: 'image',
   tiff: 'image',
+  jp2: 'image',
+  jpf: 'image',
+  jpx: 'image',
+  j2k: 'image',
+  j2c: 'image',
+  jpc: 'image',
 
   md: 'markdown',
   markdown: 'markdown',

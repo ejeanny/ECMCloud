@@ -20,6 +20,7 @@
  * page box every time.
  */
 
+import { isJpeg2000, jpeg2000ToPdf } from './jpeg2000';
 import { imageDocument, pointsFor, type PlacedImage } from './pdf-document';
 import { colorSpaceFor, isTiff, jpegComponents, tiffToPdf } from './tiff';
 
@@ -43,14 +44,19 @@ export interface Converted {
  *
  * TIFF is here because it is the opposite of those two: it is what a scanner
  * writes, it is the one common image format that holds many pages, and it is
- * the format most likely to be marked up in an ECM. See `tiff.ts`.
+ * the format most likely to be marked up in an ECM. See `tiff.ts`. JPEG 2000
+ * is here for the same reason and reaches the viewer the same way, by being a
+ * PDF image filter already — see `jpeg2000.ts`.
  */
 export function convertsToPdf(ext: string | null | undefined): boolean {
   return RASTER_EXT.has((ext ?? '').toLowerCase());
 }
 
 const RASTER_EXT = new Set([
-  'png', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'bmp', 'avif', 'tif', 'tiff',
+  'png', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'bmp', 'avif',
+  // Neither of these is decoded by any browser; both are read here.
+  'tif', 'tiff',
+  'jp2', 'jpf', 'jpx', 'j2k', 'j2c', 'jpc',
 ]);
 
 /**
@@ -77,6 +83,13 @@ export async function imageToPdf(blob: Blob): Promise<Converted> {
       note: tiff.passedThrough
         ? `Opened as PDF (${pages}, scan embedded unchanged)`
         : `Opened as PDF (${pages}, recompressed losslessly)`,
+    };
+  }
+
+  if (isJpeg2000(bytes)) {
+    return {
+      bytes: jpeg2000ToPdf(bytes).bytes,
+      note: 'Opened as PDF (image embedded unchanged)',
     };
   }
 
