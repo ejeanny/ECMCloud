@@ -2,18 +2,21 @@
  * What the viewer will do with a document, decided from its extension.
  *
  * Dokmee answered this question by converting everything to PDF first
- * (`loadAsPDF`), which for Office formats needs the conversion engine this
- * rebuild does not ship. So the answer here is split.
+ * (`loadAsPDF`), and this rebuild now answers it the same way for every format
+ * that can be marked up.
  *
- * A raster image takes Dokmee's route: `to-pdf.ts` makes it a one-page PDF in
- * the browser, and it opens in the PDF viewer with everything that viewer has.
- * It is still listed as `image` below, because that is what the file *is* —
- * `convertsToPdf` decides where it opens, and the download, the icon and the
+ * A raster image takes that route in the browser: `to-pdf.ts` makes it a PDF
+ * and it opens in the PDF viewer with everything that viewer has. TIFF goes
+ * with it, as many pages as the file holds (`tiff.ts`). An office document
+ * takes the longer road through the server's converter, when one is configured.
+ *
+ * Images are still listed as `image` below, because that is what the file *is*
+ * — `convertsToPdf` decides where it opens, and the download, the icon and the
  * name all still want to know it is an image.
  *
  * Everything else is met where it is: the browser can play media and lay out
- * text, and DOCX has a library that runs client-side. Office formats are the
- * honest remaining gap; see FORMAT_NOTES.
+ * text, and DOCX has a library that runs client-side as a fallback for a
+ * deployment with no converter.
  */
 export type ViewerFormat =
   | 'pdf'
@@ -40,6 +43,11 @@ const BY_EXT: Record<string, ViewerFormat> = {
   avif: 'image',
   ico: 'image',
   svg: 'image',
+
+  // And the one it does not: a TIFF is read and converted by `tiff.ts`, so it
+  // never reaches the plain image renderer. It is an image all the same.
+  tif: 'image',
+  tiff: 'image',
 
   md: 'markdown',
   markdown: 'markdown',
@@ -105,10 +113,15 @@ export function viewerHrefFor(node: { id: string }): string {
 
 /**
  * Formats with no in-browser renderer, named so the fallback can say what the
- * file is rather than only that it cannot show it. Office formats other than
- * .docx are the honest gap: the spreadsheet and presentation parsers that run
- * client-side are either unmaintained on npm or carry open advisories, and
- * parsing an uploaded file with one of those is a poor trade for a preview.
+ * file is rather than only that it cannot show it.
+ *
+ * The office formats here are only unreachable on a deployment with no
+ * document converter configured: with one, they open in the PDF viewer like
+ * everything else, and this table is never consulted for them. There is no
+ * client-side fallback for them on purpose — the spreadsheet and presentation
+ * parsers that run in a browser are either unmaintained on npm or carry open
+ * advisories, and parsing an uploaded file with one of those is a poor trade
+ * for a preview.
  */
 export const FORMAT_NOTES: Record<string, string> = {
   xlsx: 'Spreadsheet',
@@ -121,10 +134,4 @@ export const FORMAT_NOTES: Record<string, string> = {
   zip: 'Archive',
   rar: 'Archive',
   '7z': 'Archive',
-  // The one image format no browser decodes, and the one most likely to be in
-  // an ECM: a multi-page fax or scan. Every other raster format now opens as a
-  // PDF (`to-pdf.ts`); this one needs a TIFF decoder before it can join them,
-  // and then it becomes a PDF of several pages rather than one.
-  tif: 'TIFF image — needs a decoder to open',
-  tiff: 'TIFF image — needs a decoder to open',
 };

@@ -470,32 +470,71 @@ is not about display. It is about making one set of features apply to
 everything.
 
 **What this rebuild does.** `apps/web/src/lib/viewer/to-pdf.ts` converts raster
-images to a one-page PDF in the browser, and `openPdf` takes bytes instead of a
-URL when it does. A JPEG is embedded unchanged — JPEG *is* a PDF image filter
-(`DCTDecode`), so a scan costs no quality and no re-encoding time; everything
-else goes through a canvas. Page size comes from the image's declared
+images to a PDF in the browser, and `openPdf` takes bytes instead of a URL when
+it does; `pdf-document.ts` writes the file, which is a page list, a content
+stream per page and an image per region — small enough that the geometry
+annotations are stored against stays readable rather than sitting behind
+someone else's defaults. A JPEG is embedded unchanged — JPEG *is* a PDF image
+filter (`DCTDecode`), so a scan costs no quality and no re-encoding time;
+everything else goes through a canvas. The colour space is read from the JPEG's
+own frame header rather than assumed, because PDF requires it to have as many
+components as the filter produces and a grayscale scan declared `DeviceRGB` is
+a file no reader will open. Page size comes from the image's declared
 resolution (JFIF density, PNG `pHYs`) and falls back to 96dpi, so a 300dpi scan
 opens as a letter-sized page rather than a 26-inch one.
 
-Three gaps, stated plainly:
+**TIFF, which turned out not to need a decoder.** TIFF is the format an ECM
+cannot do without and a browser cannot read: it is what scanners and fax
+servers write, it is the only common image format that holds many pages, and no
+browser has ever decoded it. The obvious answer is a decoding dependency. The
+better answer is that a TIFF is a *container*, and what it usually contains is
+already a PDF image filter:
 
-- **TIFF** — the one image format no browser decodes, and the one most likely
-  to be in an ECM: multi-page faxes and scans. It needs a decoder before it can
-  join the rest, and then it becomes a PDF of several pages. A dependency
-  decision, not a design one.
-- **Office** — needs a real layout engine, which is why it is the server's
-  job. `GET /file/:id/pdf` converts through whatever `OFFICE_CONVERT_COMMAND`
-  names — LibreOffice headless is what it is written for — and caches the
-  result by content hash, as Dokmee cached its own in `App_Data` [observed:
-  `ViewerHelperUtil`]. With nothing configured the feature is absent rather
-  than broken: `session.me` reports the capability, and the viewer keeps the
-  renderers it has.
+| TIFF compression | Becomes | Work done |
+|---|---|---|
+| CCITT Group 4 (4), Group 3 (3), RLE (2) | `/CCITTFaxDecode` | none — the bytes are copied |
+| JPEG (7) | `/DCTDecode` | none — the bytes are copied |
+| Deflate (8, 32946), LZW (5), PackBits (32773), none (1) | `/FlateDecode` | decoded and re-compressed, losslessly |
+| old-style JPEG (6), tiled, BigTIFF | refused, with the reason | — |
 
-  Verified against LibreOffice 26.8.2.2 [observed]: a two-page `.docx` came
-  back as two Letter pages with its text and its page break intact, an `.xlsx`
-  as one A4 page, an `.rtf` as one Letter page, each in 2.6–3.0s, and the
-  second request for the same bytes served the cache without starting the
-  converter.
+`apps/web/src/lib/viewer/tiff.ts` reads the directory chain, and for a scan it
+writes a dictionary and moves the strip across untouched. A 1728×1143 Group 4
+fax page converts in **0ms** and the PDF is the TIFF's 7,050 bytes plus about
+500 of structure. Decoding that page to pixels and re-encoding it as JPEG — the
+obvious implementation — would have cost a megabyte, a generation of quality,
+and the crisp edges that make scanned text readable at all.
+
+Three details are worth naming because each one is a wrong-looking page if
+missed. Strips cannot be concatenated: a Group 4 strip begins from an imaginary
+white row above it, so two joined together decode to noise — each becomes its
+own image object, stacked. `BlackIs1` follows `PhotometricInterpretation`, so a
+fax renders as a fax and only a file that declares `BlackIsZero` comes out
+inverted. And page size comes from each page's own resolution, which for fax is
+204×196 and not square; a page laid out as though it were comes out a third too
+tall.
+
+Verified both ways [observed]: `tests/tiff.mjs` runs 196 assertions over 18
+generated TIFFs — page boxes, filters, fax parameters, and for a pass-through
+page that the stream in the PDF is byte for byte the stream in the TIFF, plus
+every sample of a 2550×3300 colour page after the Deflate is undone. Separately
+each fixture was rendered through PDF.js and the ink read back off the canvas,
+which is what establishes that the hand-written fax parameters decode to the
+right picture rather than merely to something. That suite needs no API and no
+database, which is why `npm test` no longer requires one for it.
+
+**Office** needs a real layout engine, which is why it is the server's
+job. `GET /file/:id/pdf` converts through whatever `OFFICE_CONVERT_COMMAND`
+names — LibreOffice headless is what it is written for — and caches the
+result by content hash, as Dokmee cached its own in `App_Data` [observed:
+`ViewerHelperUtil`]. With nothing configured the feature is absent rather
+than broken: `session.me` reports the capability, and the viewer keeps the
+renderers it has.
+
+Verified against LibreOffice 26.8.2.2 [observed]: a two-page `.docx` came
+back as two Letter pages with its text and its page break intact, an `.xlsx`
+as one A4 page, an `.rtf` as one Letter page, each in 2.6–3.0s, and the
+second request for the same bytes served the cache without starting the
+converter.
 
 ### What conversion costs you
 
@@ -517,11 +556,19 @@ is derived. This is also why annotations on a converted document are kept
 beside it rather than burned into it — and why the cache key is the content
 hash, so the same bytes always produce the same geometry to store marks
 against.
-- **No text layer on a converted image** — an image has no text, so search and
-  the text markups do not apply to it; ink, box and note do. Dokmee closes this
-  with OCR (`AddOCRService`), which this rebuild lists as an explicit stub.
-  OCR with word positions would make a scan searchable and highlightable, and
-  that is the one addition that would change what the viewer can do.
+**One gap remains, and it is the interesting one: a converted image has no text
+layer.** An image has no text, so search and the text markups do not apply to
+it; ink, box and note do. This is now the *only* reason a document in this
+viewer lacks a feature — every format reaches the same viewer, and a scan is
+the one that arrives without words. Dokmee closes it with OCR
+(`AddOCRService`), which this rebuild lists as an explicit stub. OCR with word
+positions would make a scan searchable and highlightable, and that is the one
+addition that would change what the viewer can do.
+
+It is also where the TIFF work pays off a second time: a multi-page fax is now
+a multi-page PDF with real page geometry, so OCR output has somewhere exact to
+attach — a quad per word on a known page box — rather than needing a coordinate
+system invented for it.
 
 Burning stays PDF-only. The viewer builds the converted PDF in the browser; the
 file on disk is still an image, so marks on it are kept beside it rather than

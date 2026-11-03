@@ -20,9 +20,11 @@
  * page box every time.
  */
 
+import { imageDocument, pointsFor, type PlacedImage } from './pdf-document';
+import { colorSpaceFor, isTiff, jpegComponents, tiffToPdf } from './tiff';
+
 /** A PDF page is measured in points; CSS pixels are 96 to the inch. */
 const DEFAULT_DPI = 96;
-const POINTS_PER_INCH = 72;
 
 export interface Converted {
   bytes: Uint8Array;
@@ -38,34 +40,60 @@ export interface Converted {
  * resampling, the other is several sizes in one file, and flattening either to
  * a single raster page to gain annotations is a poor trade. Neither is a
  * document anyone marks up.
+ *
+ * TIFF is here because it is the opposite of those two: it is what a scanner
+ * writes, it is the one common image format that holds many pages, and it is
+ * the format most likely to be marked up in an ECM. See `tiff.ts`.
  */
 export function convertsToPdf(ext: string | null | undefined): boolean {
   return RASTER_EXT.has((ext ?? '').toLowerCase());
 }
 
-const RASTER_EXT = new Set(['png', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'bmp', 'avif']);
+const RASTER_EXT = new Set([
+  'png', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'bmp', 'avif', 'tif', 'tiff',
+]);
 
 /**
- * One image, one PDF page.
+ * An image, as a PDF.
  *
- * A JPEG is embedded exactly as it arrived — JPEG is already a PDF image
- * filter (`DCTDecode`), so re-encoding it would cost a generation of quality
- * and a good deal of time for nothing. That is the case that matters, since a
- * scanned page is almost always a JPEG. Anything else the browser can decode
- * goes through a canvas and comes out as JPEG.
+ * A TIFF takes its own road, because it is the one format here the browser
+ * cannot decode and the one that can hold more than a single page.
+ *
+ * Everything else is one image on one page. A JPEG is embedded exactly as it
+ * arrived — JPEG is already a PDF image filter (`DCTDecode`), so re-encoding it
+ * would cost a generation of quality and a good deal of time for nothing. That
+ * is the case that matters, since a scanned page is almost always a JPEG.
+ * Anything else the browser can decode goes through a canvas and comes out as
+ * JPEG.
  */
 export async function imageToPdf(blob: Blob): Promise<Converted> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
-  const image = await decode(blob);
 
+  if (isTiff(bytes)) {
+    const tiff = await tiffToPdf(bytes);
+    const pages = tiff.pages === 1 ? '1 page' : `${tiff.pages} pages`;
+    return {
+      bytes: tiff.bytes,
+      note: tiff.passedThrough
+        ? `Opened as PDF (${pages}, scan embedded unchanged)`
+        : `Opened as PDF (${pages}, recompressed losslessly)`,
+    };
+  }
+
+  const image = await decode(blob);
   try {
     const { width, height } = sizeOf(image);
     const jpeg = isJpeg(bytes);
     const payload = jpeg ? bytes : await reencode(image);
     const dpi = (jpeg ? jfifDpi(bytes) : null) ?? pngDpi(bytes) ?? DEFAULT_DPI;
 
+    // Read from the stream, not assumed: PDF requires the colour space to have
+    // as many components as the filter produces, and a grayscale scan declared
+    // DeviceRGB is a PDF no reader will open. A canvas always gives three.
+    const components = jpeg ? (jpegComponents(payload) ?? 3) : 3;
+
     return {
-      bytes: onePageDocument(payload, width, height, dpi),
+      bytes: onePage(payload, width, height, dpi, colorSpaceFor(components)),
       note: jpeg
         ? 'Opened as PDF (image embedded unchanged)'
         : 'Opened as PDF (image re-encoded)',
@@ -73,6 +101,29 @@ export async function imageToPdf(blob: Blob): Promise<Converted> {
   } finally {
     if (!(image instanceof HTMLImageElement)) image.close();
   }
+}
+
+/** One image, one page, sized by the resolution the image declares. */
+function onePage(
+  payload: Uint8Array,
+  pixelWidth: number,
+  pixelHeight: number,
+  dpi: number,
+  colorSpace: string,
+): Uint8Array {
+  const width = pointsFor(pixelWidth, dpi);
+  const height = pointsFor(pixelHeight, dpi);
+
+  const image: PlacedImage = {
+    bytes: payload,
+    pixelWidth,
+    pixelHeight,
+    filter: 'DCTDecode',
+    colorSpace,
+    bitsPerComponent: 8,
+    at: { x: 0, y: 0, width, height },
+  };
+  return imageDocument([{ width, height, images: [image] }]);
 }
 
 /**
@@ -182,95 +233,4 @@ function readU32(bytes: Uint8Array, at: number): number {
   return (
     ((bytes[at]! << 24) | (bytes[at + 1]! << 16) | (bytes[at + 2]! << 8) | bytes[at + 3]!) >>> 0
   );
-}
-
-/**
- * A complete PDF holding one image, written by hand.
- *
- * Hand-written because the alternative is a PDF-writing library, and a
- * one-page image document is five objects and an xref table — far less than
- * the dependency, and it keeps the geometry the annotations are stored against
- * visible in this file rather than behind someone else's defaults.
- */
-function onePageDocument(
-  image: Uint8Array,
-  pixelWidth: number,
-  pixelHeight: number,
-  dpi: number,
-): Uint8Array {
-  const width = round(((pixelWidth * POINTS_PER_INCH) / dpi) * 1000) / 1000;
-  const height = round(((pixelHeight * POINTS_PER_INCH) / dpi) * 1000) / 1000;
-
-  const out = new Writer();
-  const offsets: number[] = [];
-  out.text('%PDF-1.7\n');
-  // A comment of high bytes, which tells anything sniffing the file that it is
-  // binary and must not be newline-translated in transit.
-  out.bytes(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
-
-  const object = (body: string, stream?: Uint8Array) => {
-    offsets.push(out.length);
-    out.text(`${offsets.length} 0 obj\n${body}\n`);
-    if (stream) {
-      out.text('stream\n');
-      out.bytes(stream);
-      out.text('\nendstream\n');
-    }
-    out.text('endobj\n');
-  };
-
-  object('<</Type/Catalog/Pages 2 0 R>>');
-  object('<</Type/Pages/Kids[3 0 R]/Count 1>>');
-  object(
-    `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${width} ${height}]` +
-      `/Resources<</XObject<</Im0 5 0 R>>>>/Contents 4 0 R>>`,
-  );
-
-  // Scale the unit image square up to the page: `cm` is the transform, `Do`
-  // paints. `q`/`Q` keep it from leaking into anything drawn later.
-  const content = encode(`q\n${width} 0 0 ${height} 0 0 cm\n/Im0 Do\nQ\n`);
-  object(`<</Length ${content.length}>>`, content);
-
-  object(
-    `<</Type/XObject/Subtype/Image/Width ${pixelWidth}/Height ${pixelHeight}` +
-      `/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length ${image.length}>>`,
-    image,
-  );
-
-  const xref = out.length;
-  out.text(`xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`);
-  for (const at of offsets) out.text(`${String(at).padStart(10, '0')} 00000 n \n`);
-  out.text(
-    `trailer\n<</Size ${offsets.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`,
-  );
-
-  return out.done();
-}
-
-const round = Math.round;
-const encode = (s: string) => new TextEncoder().encode(s);
-
-/** Appends bytes, and knows the offset of every one — which the xref needs. */
-class Writer {
-  #parts: Uint8Array[] = [];
-  length = 0;
-
-  text(value: string): void {
-    this.bytes(encode(value));
-  }
-
-  bytes(value: Uint8Array): void {
-    this.#parts.push(value);
-    this.length += value.length;
-  }
-
-  done(): Uint8Array {
-    const out = new Uint8Array(this.length);
-    let at = 0;
-    for (const part of this.#parts) {
-      out.set(part, at);
-      at += part.length;
-    }
-    return out;
-  }
 }

@@ -15,7 +15,15 @@ import { BASE } from './harness.mjs';
 
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 
+/**
+ * Suites, and whether each one needs a running API.
+ *
+ * Nearly all of them do: they are end to end on purpose. The converter suites
+ * are the exception — they run on bytes, so they want neither a server nor a
+ * password, and gating them behind one would mean nobody runs them.
+ */
 const SUITES = [
+  ['tiff', 'TIFF converted to PDF, page geometry and streams', { api: false }],
   ['flow', 'upload, index, search, versions, recycle'],
   ['restrictions', 'row-level view restrictions on every path'],
   ['annotations', 'annotations and XFDF'],
@@ -28,7 +36,10 @@ const SUITES = [
 
 function run(file, args = []) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(here, file), ...args], {
+    // The converter suites import TypeScript straight from the web app, which
+    // Node will do but warns about once per file; the warning is noise here.
+    const flags = ['--no-warnings=MODULE_TYPELESS_PACKAGE_JSON'];
+    const child = spawn(process.execPath, [...flags, path.join(here, file), ...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: process.env,
     });
@@ -39,32 +50,35 @@ function run(file, args = []) {
   });
 }
 
-if (!process.env.ECM_ADMIN_PASSWORD) {
-  console.error('Set ECM_ADMIN_PASSWORD to the password the seed was run with.');
-  process.exit(2);
-}
-
-try {
-  const health = await fetch(`${BASE}/health`);
-  if (!health.ok) throw new Error(`HTTP ${health.status}`);
-} catch (error) {
-  console.error(`No API on ${BASE} — start it with \`npm run dev:api\`. (${error.message})`);
-  process.exit(2);
-}
-
-// The PDF suites need a real multi-page PDF; it is generated rather than
-// committed, so the bytes under test are never a stale checked-in blob.
-const pdf = path.join(here, 'fixtures', 'invoice.pdf');
-if (!existsSync(pdf)) {
-  const made = await run(path.join('fixtures', 'make-pdf.mjs'), [pdf]);
-  if (made.code !== 0) {
-    console.error(made.out);
-    process.exit(2);
-  }
-}
-
 const only = process.argv.slice(2);
 const selected = only.length > 0 ? SUITES.filter(([n]) => only.includes(n)) : SUITES;
+const needsApi = selected.some(([, , options]) => options?.api !== false);
+
+if (needsApi) {
+  if (!process.env.ECM_ADMIN_PASSWORD) {
+    console.error('Set ECM_ADMIN_PASSWORD to the password the seed was run with.');
+    process.exit(2);
+  }
+
+  try {
+    const health = await fetch(`${BASE}/health`);
+    if (!health.ok) throw new Error(`HTTP ${health.status}`);
+  } catch (error) {
+    console.error(`No API on ${BASE} — start it with \`npm run dev:api\`. (${error.message})`);
+    process.exit(2);
+  }
+
+  // The PDF suites need a real multi-page PDF; it is generated rather than
+  // committed, so the bytes under test are never a stale checked-in blob.
+  const pdf = path.join(here, 'fixtures', 'invoice.pdf');
+  if (!existsSync(pdf)) {
+    const made = await run(path.join('fixtures', 'make-pdf.mjs'), [pdf]);
+    if (made.code !== 0) {
+      console.error(made.out);
+      process.exit(2);
+    }
+  }
+}
 
 let failed = 0;
 for (const [name, what] of selected) {
